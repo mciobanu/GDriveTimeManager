@@ -62,7 +62,7 @@ function onOpen() {
 
     setupSheets();
 }
-//ttt1 Review other triggers: https://developers.google.com/apps-script/guides/triggers
+//ttt3 Review other triggers: https://developers.google.com/apps-script/guides/triggers
 
 /**
  * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
@@ -88,7 +88,7 @@ function setupSheets() {
         sheet.setName(FILES_SHEET_NAME);
     }
 
-    getFoldersSheet().activate(); //ttt1 This doesn't work when running the script in the editor, but
+    getFoldersSheet().activate(); //ttt3 This doesn't work when running the script in the editor, but
     // works when starting from the Sheet menu. At least it doesn't crash
 
     setupFoldersSheet();
@@ -271,7 +271,7 @@ function menuSetTimesFolders() {
     logF('------------------ Update finished ------------------');
 }
 
-const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt2 Review if something else would be better. (Hour
+const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
 // is set at noon, so most timezones will see it as January 1st)
 
 class TimeSetter {
@@ -318,7 +318,7 @@ class TimeSetter {
                         });
                     } else {
                         if (item.mimeType !== SHORTCUT_MIME) {
-                            //ttt1 Perhaps log that link was skipped, or have an option not to skip it
+                            //ttt0 Perhaps log that link was skipped, or have an option not to skip it
                             newTime = item.modifiedDate;
                         }
                     }
@@ -328,7 +328,7 @@ class TimeSetter {
                 }
                 pageToken = items.nextPageToken;
             } catch (err) {
-                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. Error: ${err.message}`; //ttt1 Review the use of ".message", here and elsewhere. Might not exist
+                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. Error: ${err.message}`; //ttt0 Review the use of ".message", here and elsewhere. Might not exist
                 logF(msg);
                 //ttt2 improve
             }
@@ -363,7 +363,7 @@ function updateModifiedTime(id, itemTime) {
     const body = {modifiedDate: itemTime}; // type File: https://developers.google.com/drive/api/reference/rest/v2/files#File
     const blob = null;
     const optionalArgs = {setModifiedDate: true}; // https://developers.google.com/drive/api/reference/rest/v2/files/update#query-parameters
-    Drive.Files.update(body, id, blob, optionalArgs); //ttt1 This fails silently for non-owners, so perhaps don't call it
+    Drive.Files.update(body, id, blob, optionalArgs); //ttt0 This fails silently for non-owners, so perhaps don't call it
 }
 
 
@@ -419,7 +419,7 @@ IdInfo: {
     //name: "name1",
     path: "/kf84/asf",
     multiplePaths: true, // optional, for when there are multiple parents
-    //cnt: 3, // just for errors, to be able to tell how many times a folder has been added already //ttt1 See if we want this
+    //cnt: 3, // just for errors, to be able to tell how many times a folder has been added already //ttt2 See if we want this
     modifiedDate: "2000-01-01T10:00:00.000Z",
 }
 
@@ -463,7 +463,7 @@ InputIdInfo:
  * Returns an array the size of up to the "names" section without the title with the type InputNameInfo.
  * For empty names, the corresponding entry is undefined (or missing, at the end of the array).
  * For non-empty names, the corresponding entry is like in the comment above. We want exactly one entry, otherwise it's an error.
- * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning. //ttt0 cache
+ * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning.
  *
  * @param {string[]} names - array of strings
  * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
@@ -613,7 +613,7 @@ function updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos) 
         }
         let lines = [];
         if (folderIdInfo.folder) {
-            lines.push(`${folderIdInfo.folder.path}${folderIdInfo.folder.multiplePaths ? ' (and others)' : ''}  [${folderIdInfo.folder.id}]`); //ttt1 duplicate code "(and others)"
+            lines.push(`${folderIdInfo.folder.path}${folderIdInfo.folder.multiplePaths ? ' (and others)' : ''}  [${folderIdInfo.folder.id}]`); //ttt0 duplicate code "(and others)"
         }
         const cellRange = foldersSheet.getRange(rangeInfo.idsBegin + 1 + i, 2);
         if (folderIdInfo.errors.length) {
