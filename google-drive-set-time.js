@@ -111,6 +111,10 @@ function setupFoldersSheet() {
 }
 */
 
+const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
+    + ' delete or rename the "Folders" sheet and then reopen the spreadsheet';
+
+
 /**
  * @typedef {Object} FolderRangeInfo
  * @property {number} namesBegin
@@ -147,6 +151,7 @@ function getFolderRangeInfo() {
         }
     }
     if (expectedIndex !== expected.length) {
+        showFolderMessage(RANGE_NOT_FOUND_ERR);
         return null;
     }
     return {
@@ -198,23 +203,22 @@ const IDS_BG = '#eef';
 const LOG_BG = '#ffc';
 const ERROR_BG = '#fbb';
 
-const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
-    + ' delete or rename the "Folders" sheet and then reopen the spreadsheet';
-
 /**
  * Sets the background for the first column, so names, IDs, and logs each have their own color.
  * Throws if (some of) the section starts are not found or are not in their proper order.
+ *
+ * @return {boolean} true iff the range is valid
  */
 function applyColorToFoldersSheet() {
     const foldersSheet = getFoldersSheet();
     const rangeInfo = getFolderRangeInfo();
     if (!rangeInfo) {
-        showFolderMessage(RANGE_NOT_FOUND_ERR); //ttt0 Make sure this is only shown once
-        return;
+        return false;
     }
     foldersSheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
     foldersSheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
     foldersSheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, 2).setBackground(LOG_BG);
+    return true;
 }
 
 /**
@@ -306,6 +310,9 @@ InputIdInfo:
 }
 */
 
+/**
+ * @return {boolean} true iff the range is valid
+ */
 function menuSetTimesFolders() {
     //ttt0 confirmation
     let foldersSheet = getFoldersSheet();
@@ -316,8 +323,7 @@ function menuSetTimesFolders() {
     foldersSheet.activate();
     const rangeInfo = getFolderRangeInfo();
     if (!rangeInfo) {
-        showFolderMessage(RANGE_NOT_FOUND_ERR); //ttt0 Make sure this is only shown once
-        return;
+        return false;
     }
 //foldersSheet.getRange()
     /** @type {Map<string, IdInfo>} */
@@ -326,18 +332,22 @@ function menuSetTimesFolders() {
     const inputNameInfos = validateFolderNames(names, idInfosMap);
     const inputIds = getColumnData(foldersSheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
     const inputIdInfos = validateFolderIds(inputIds, idInfosMap);
-    updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos);
+    if (!updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos)) {
+        // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
+        return false;
+    }
     const nameErrors = inputNameInfos.filter((val) => val.errors.length);
     const idErrors = inputIdInfos.filter((val) => val.errors.length);
     if (nameErrors.length || idErrors.length) {
         showFolderMessage('Found some errors, which need to be resolved before proceeding with setting the times');
-        return;
+        return false;
     }
 
     logF('------------------ Starting update ------------------');
     const idInfosArr = Array.from(idInfosMap.values());
     setTimes(idInfosArr);
     logF('------------------ Update finished ------------------');
+    return true;
 }
 
 const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
@@ -582,10 +592,14 @@ function getIdInfo(id) {
  * @param {FolderRangeInfo} rangeInfo
  * @param {InputNameInfo[]} inputNameInfos
  * @param {InputIdInfo[]} inputIdInfos
+ *
+ * @return {boolean} true iff the range is valid
  */
 function updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos) {
     clearErrors();
-    applyColorToFoldersSheet();
+    if (!applyColorToFoldersSheet()) {
+        return false;
+    }
     const foldersSheet = getFoldersSheet();
 
     for (let i = 0; i < inputNameInfos.length; i += 1) {
@@ -623,6 +637,7 @@ function updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos) 
     }
 
     //foldersSheet.autoResizeColumns(1, 2); //!!! Not right, as it include the logs
+    return true;
 }
 
 /**
