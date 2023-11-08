@@ -248,6 +248,7 @@ const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
  * @property {string} path
  * @property {boolean} multiplePaths
  * @property {string} modifiedDate
+ * @property {boolean} ownedByMe
  */
 
 /**
@@ -400,6 +401,7 @@ class TimeSetter {
                             modifiedDate: item.modifiedDate,
                             multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
                             path: `${idInfo.path}/${item.title}`,
+                            ownedByMe: item.ownedByMe,
                         });
                     } else {
                         if (item.mimeType !== SHORTCUT_MIME) {
@@ -424,8 +426,12 @@ class TimeSetter {
             if (idInfo.path) {
                 // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
                 try {
-                    logF(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
-                    updateModifiedTime(idInfo.id, res);
+                    if (idInfo.ownedByMe) {
+                        logF(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
+                        updateModifiedTime(idInfo.id, res);
+                    } else {
+                        logF(`Not updating ${idInfo.path}, which has a different owner`);
+                    }
                 } catch (err) {
                     const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. Error: ${err.message}`;
                     logF(msg);
@@ -449,7 +455,8 @@ function updateModifiedTime(id, itemTime) {
     const body = {modifiedDate: itemTime}; // type File: https://developers.google.com/drive/api/reference/rest/v2/files#File
     const blob = null;
     const optionalArgs = {setModifiedDate: true}; // https://developers.google.com/drive/api/reference/rest/v2/files/update#query-parameters
-    Drive.Files.update(body, id, blob, optionalArgs); //ttt0 This fails silently for non-owners, so perhaps don't call it
+    Drive.Files.update(body, id, blob, optionalArgs); // This fails silently for non-owners, but we check for that
+    // before calling updateModifiedTime()
 }
 
 
@@ -458,12 +465,13 @@ function updateModifiedTime(id, itemTime) {
  */
 function setTimes(idInfos) {
     if (!idInfos.length) {
-        const rootFolder = DriveApp.getRootFolder();
+        const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
         idInfos.push({
             id: rootFolder.getId(),
             path: '',
             multiplePaths: false,
             modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
+            ownedByMe: true, // doesn't really matter
         });
         logF('Processing all the files, as no folder names or IDs were specified');
     }
@@ -577,11 +585,13 @@ function getIdInfo(id) {
     let parents = objectInfo.parents;
     let parentCnt = parents.length;
     if (parentCnt === 0) {
+        // It's a (usually "the") root
         return {
             id,
             path: '',
             multiplePaths: false,
             modifiedDate: objectInfo.modifiedDate,
+            ownedByMe: objectInfo.ownedByMe, // doesn't matter
         };
     }
     let parent = parents[0];
@@ -591,6 +601,7 @@ function getIdInfo(id) {
         path: `${parentInfo.path}/${objectInfo.title}`,
         multiplePaths: parentInfo.multiplePaths || (parentCnt > 1),
         modifiedDate: objectInfo.modifiedDate,
+        ownedByMe: objectInfo.ownedByMe,
     };
 }
 
