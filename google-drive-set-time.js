@@ -237,6 +237,75 @@ function getColumnData(sheet, column, rowStart, rowEnd) {
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
+/**
+ * IdInfo descr
+ * @typedef {Object} IdInfo
+ * @property {string} id
+ * @property {string} path
+ * @property {boolean} multiplePaths
+ * @property {string} modifiedDate
+ */
+
+/**
+ * InputNameInfo descr
+ * @typedef {Object} InputNameInfo
+ * @property {IdInfo[]} folders
+ * @property {string[]} errors
+ */
+
+/**
+ * InputIdInfo descr
+ * @typedef {Object} InputIdInfo
+ * @property {IdInfo} folder
+ * @property {string[]} errors
+ */
+
+/*
+
+IdInfo: {
+    id: "ke8436",
+    //name: "name1",
+    path: "/kf84/asf",
+    multiplePaths: true, // optional, for when there are multiple parents
+    //cnt: 3, // just for errors, to be able to tell how many times a folder has been added already //ttt2 See if we want this
+    modifiedDate: "2000-01-01T10:00:00.000Z",
+}
+
+InputNameInfo:
+{
+    folders: [
+        { // IdInfo
+            id: "hd73hb",
+            //name: "name1",
+            path: "/de/fd/gth",
+            modifiedDate: "2000-01-01T10:00:00.000Z",
+        },
+        {
+            id: "ke8436",
+            //name: "name1",
+            path: "/kf84/asf",
+            multiplePaths: true,
+            modifiedDate: "2000-01-01T10:00:00.000Z",
+        },
+    ],
+    errors: [
+        "Found multiple folders with name 'name1'",
+    ]
+}
+
+InputIdInfo:
+{
+    folder: { // IdInfo
+        id: "hd73hb",
+        name: "name1",
+        path: "/de/fd/gth",
+    },
+    errors: [
+        "ID 'hd73hb' already found",
+    ]
+}
+*/
+
 function menuSetTimesFolders() {
     //ttt0 confirmation
     let foldersSheet = getFoldersSheet();
@@ -387,76 +456,6 @@ function setTimes(idInfos) {
         timeSetter.process(idInfo);
     }
 }
-
-
-/**
- * IdInfo descr
- * @typedef {Object} IdInfo
- * @property {string} id
- * @property {string} path
- * @property {boolean} multiplePaths
- * @property {string} modifiedDate
- */
-
-/**
- * InputNameInfo descr
- * @typedef {Object} InputNameInfo
- * @property {IdInfo[]} folders
- * @property {string[]} errors
- */
-
-/**
- * InputIdInfo descr
- * @typedef {Object} InputIdInfo
- * @property {IdInfo} folder
- * @property {string[]} errors
- */
-
-/*
-
-IdInfo: {
-    id: "ke8436",
-    //name: "name1",
-    path: "/kf84/asf",
-    multiplePaths: true, // optional, for when there are multiple parents
-    //cnt: 3, // just for errors, to be able to tell how many times a folder has been added already //ttt2 See if we want this
-    modifiedDate: "2000-01-01T10:00:00.000Z",
-}
-
-InputNameInfo:
-{
-    folders: [
-        { // IdInfo
-            id: "hd73hb",
-            //name: "name1",
-            path: "/de/fd/gth",
-            modifiedDate: "2000-01-01T10:00:00.000Z",
-        },
-        {
-            id: "ke8436",
-            //name: "name1",
-            path: "/kf84/asf",
-            multiplePaths: true,
-            modifiedDate: "2000-01-01T10:00:00.000Z",
-        },
-    ],
-    errors: [
-        "Found multiple folders with name 'name1'",
-    ]
-}
-
-InputIdInfo:
-{
-    folder: { // IdInfo
-        id: "hd73hb",
-        name: "name1",
-        path: "/de/fd/gth",
-    },
-    errors: [
-        "ID 'hd73hb' already found",
-    ]
-}
-*/
 
 
 /**
