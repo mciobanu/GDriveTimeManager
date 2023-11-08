@@ -311,10 +311,10 @@ InputIdInfo:
 */
 
 /**
- * @return {boolean} true iff the range is valid
+ * @return {boolean} true iff the range is valid and the user confirmed it's OK to proceed
  */
 function menuSetTimesFolders() {
-    //ttt0 confirmation
+
     let foldersSheet = getFoldersSheet();
     if (!foldersSheet) {
         setupSheets();
@@ -325,17 +325,20 @@ function menuSetTimesFolders() {
     if (!rangeInfo) {
         return false;
     }
-//foldersSheet.getRange()
+
     /** @type {Map<string, IdInfo>} */
     const idInfosMap = new Map();
     const names = getColumnData(foldersSheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
     const inputNameInfos = validateFolderNames(names, idInfosMap);
     const inputIds = getColumnData(foldersSheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
     const inputIdInfos = validateFolderIds(inputIds, idInfosMap);
+    //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
+    // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
     if (!updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos)) {
         // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
         return false;
     }
+
     const nameErrors = inputNameInfos.filter((val) => val.errors.length);
     const idErrors = inputIdInfos.filter((val) => val.errors.length);
     if (nameErrors.length || idErrors.length) {
@@ -343,8 +346,11 @@ function menuSetTimesFolders() {
         return false;
     }
 
-    logF('------------------ Starting update ------------------');
     const idInfosArr = Array.from(idInfosMap.values());
+    if (!showConfirmYesNoBox(`Really set the dates for ${idInfosArr.length ? 'the specified' : 'all the'}  folders?`)) {
+        return false;
+    }
+    logF('------------------ Starting update ------------------');
     setTimes(idInfosArr);
     logF('------------------ Update finished ------------------');
     return true;
@@ -678,6 +684,19 @@ function showFolderMessage(message) {
     } catch {
         logF(message);
     }
+}
+
+
+/**
+ * @param {string} message
+ * @return {boolean} whether the user chose "Yes"
+ */
+function showConfirmYesNoBox(message) {
+    //let choice = Browser.msgBox(message, Browser.Buttons.YES_NO);
+    //return choice === 'yes';
+    const ui = SpreadsheetApp.getUi();
+    const choice = ui.alert(message, ui.ButtonSet.YES_NO);
+    return choice === ui.Button.YES;
 }
 
 /**
