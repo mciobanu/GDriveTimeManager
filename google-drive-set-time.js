@@ -239,7 +239,11 @@ const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
 function menuSetTimesFolders() {
     //ttt0 confirmation
-    const foldersSheet = getFoldersSheet();
+    let foldersSheet = getFoldersSheet();
+    if (!foldersSheet) {
+        setupSheets();
+        foldersSheet = getFoldersSheet();
+    }
     foldersSheet.activate();
     const rangeInfo = getFolderRangeInfo();
     if (!rangeInfo) {
