@@ -403,8 +403,9 @@ class TimeSetter {
                         });
                     } else {
                         if (item.mimeType !== SHORTCUT_MIME) {
-                            //ttt0 Perhaps log that link was skipped, or have an option not to skip it
                             newTime = item.modifiedDate;
+                        } else {
+                            logF(`Ignoring date of shortcut ${idInfo.path}/${item.title}`);
                         }
                     }
                     if (newTime > res) {
@@ -421,7 +422,7 @@ class TimeSetter {
 
         if (res !== idInfo.modifiedDate) {
             if (idInfo.path) {
-                // We are not dealing here with the root, which cannot be updated (and you couldn't see the date anyway)
+                // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
                 try {
                     logF(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
                     updateModifiedTime(idInfo.id, res);
