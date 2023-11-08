@@ -416,7 +416,10 @@ class TimeSetter {
                 }
                 pageToken = items.nextPageToken;
             } catch (err) {
-                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. Error: ${err.message}`; //ttt0 Review the use of ".message", here and elsewhere. Might not exist
+                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. Error: ${err}`; //ttt2 We might want
+                // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
+                // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
+                // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
                 logF(msg);
                 //ttt2 improve
             }
@@ -433,7 +436,7 @@ class TimeSetter {
                         logF(`Not updating ${idInfo.path}, which has a different owner`);
                     }
                 } catch (err) {
-                    const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. Error: ${err.message}`;
+                    const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
                     logF(msg);
                     //ttt2 improve
                 }
@@ -679,7 +682,7 @@ function logF(message) {
         range.setValue(`${formatDate(new Date())} ${message}`);
         foldersSheet.getRange(row, 1, 1, 2).setBackground(LOG_BG);
     } catch (err) {
-        console.log(`Failed to log in UI "${message}". Reason: "${err.message}"`);
+        console.log(`Failed to log in UI "${message}". "${err}"`);
     }
 }
 
