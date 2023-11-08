@@ -9,6 +9,7 @@ const LOG_START = 'Log (don\'t change this cell)';
 
 //const ROOT_ID = 'root';
 
+// noinspection JSUnusedGlobalSymbols
 function tst02() {
     // const a = SOURCE_LIST;
     // const b = a;
@@ -46,6 +47,7 @@ function getFilesSheet() {
 }
 
 
+// noinspection JSUnusedGlobalSymbols
 /**
  * Run automatically when the corresponding spreadsheet is opened
  */
@@ -126,7 +128,7 @@ function setupFoldersSheet() {
  *
  * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
  *
- * @returns {(FolderRangeInfo|null)}
+ * @returns {(FolderRangeInfo|null)} null if the range is invalid
  */
 function getFolderRangeInfo() {
     const foldersSheet = getFoldersSheet();
@@ -135,7 +137,6 @@ function getFolderRangeInfo() {
     const expected = [FOLDER_NAME_START, FOLDER_ID_START, LOG_START];
     let expectedIndex = 0;
     const found = [];
-    const res = {};
     for (let i = 0; i < rows.length; i += 1) {
         if (rows[i][0] === expected[expectedIndex]) {
             found.push(i + 1); // spreadsheet indexes start at 1
@@ -195,6 +196,9 @@ const IDS_BG = '#eef';
 const LOG_BG = '#ffc';
 const ERROR_BG = '#fbb';
 
+const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
+    + ' delete or rename the "Folders" sheet and then reopen the spreadsheet';
+
 /**
  * Sets the background for the first column, so names, IDs, and logs each have their own color.
  * Throws if (some of) the section starts are not found or are not in their proper order.
@@ -203,8 +207,8 @@ function applyColorToFoldersSheet() {
     const foldersSheet = getFoldersSheet();
     const rangeInfo = getFolderRangeInfo();
     if (!rangeInfo) {
-        throw new Error('Couldn\'t find section delimiters. If a manual fix is not obvious,'
-            + ' delete or rename the sheet and then reopen the spreadsheet');
+        showFolderMessage(RANGE_NOT_FOUND_ERR); //ttt0 Make sure this is only shown once
+        return;
     }
     foldersSheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
     foldersSheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
@@ -236,8 +240,12 @@ function menuSetTimesFolders() {
     const foldersSheet = getFoldersSheet();
     foldersSheet.activate();
     const rangeInfo = getFolderRangeInfo();
+    if (!rangeInfo) {
+        showFolderMessage(RANGE_NOT_FOUND_ERR); //ttt0 Make sure this is only shown once
+        return;
+    }
 //foldersSheet.getRange()
-    /** @type Map<string, IdInfo> */
+    /** @type {Map<string, IdInfo>} */
     const idInfosMap = new Map();
     const names = getColumnData(foldersSheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
     const inputNameInfos = validateFolderNames(names, idInfosMap);
@@ -262,7 +270,7 @@ const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt2 Review if something els
 
 class TimeSetter {
     constructor() {
-        /** @type Map<string, string> */
+        /** @type {Map<string, string>} */
         this.processed = new Map();
     }
 
@@ -324,7 +332,7 @@ class TimeSetter {
             if (idInfo.path) {
                 // We are not dealing here with the root, which cannot be updated (and you couldn't see the date anyway)
                 try {
-                    logF(`Setting time to ${res} for ${idInfo.path}`);
+                    logF(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
                     updateModifiedTime(idInfo.id, res);
                 } catch (err) {
                     const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. Error: ${err.message}`;
@@ -363,6 +371,7 @@ function setTimes(idInfos) {
             id: rootFolder.getId(),
             path: '',
             multiplePaths: false,
+            modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
         });
         logF('Processing all the files, as no folder names or IDs were specified');
     }
