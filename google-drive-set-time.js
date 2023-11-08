@@ -3,7 +3,7 @@ const DEFAULT_SOURCE_HEIGHT = 5;
 const FOLDERS_SHEET_NAME = 'Folders';
 const FILES_SHEET_NAME = 'Files';
 
-const FOLDER_NAME_START = 'Folder names, one per cell (don\'t change this cell)'; //ttt0 protect cells that shouldn't be changed
+const FOLDER_NAME_START = 'Folder names, one per cell (don\'t change this cell)';
 const FOLDER_ID_START = 'Folder IDs, one per cell (don\'t change this cell)';
 const LOG_START = 'Log (don\'t change this cell)';
 
@@ -177,6 +177,8 @@ function addLabelsIfEmptyFoldersSheet() {
         const range = foldersSheet.getRange(crtLine, 1);
         range.setValue(label);
         range.setFontWeight(BOLD_FONT);
+        //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
+        range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
         crtLine += increment;
     }
 
@@ -675,21 +677,3 @@ function formatDate(date) {
     const millis = String(date.getMilliseconds()).padStart(3, '0');
     return `${main}.${millis}`;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
