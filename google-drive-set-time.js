@@ -67,7 +67,9 @@ function tst02() {
 */
 
 /**
- * @typedef {Object} FolderRangeInfo       //ttt0 rename "RangeInfo"
+ * Where the ranges of names, IDs, and logs begin and end
+ *
+ * @typedef {Object} RangeInfo
  * @property {number} namesBegin
  * @property {number} namesEnd
  * @property {number} idsBegin
@@ -78,7 +80,8 @@ function tst02() {
 
 
 /**
- * IdInfo descr
+ * Drive info about a particular ID. If it has multiple parents, only one path through one of them is included
+ *
  * @typedef {Object} IdInfo
  * @property {string} id
  * @property {string} path
@@ -88,16 +91,17 @@ function tst02() {
  */
 
 /**
- * InputNameInfo descr
+ * Information about a folder or file name (which comes from user input)
+ *
  * @typedef {Object} InputNameInfo
- * @property {IdInfo[]} folders
+ * @property {IdInfo[]} idInfos
  * @property {string[]} errors
  */
 
 /**
- * InputIdInfo descr
+ * Information about a folder or file ID (which comes from user input)
  * @typedef {Object} InputIdInfo
- * @property {IdInfo} folder
+ * @property {IdInfo} idInfo
  * @property {string[]} errors
  */
 
@@ -114,19 +118,20 @@ IdInfo: {
 
 InputNameInfo:
 {
-    folders: [
+    idInfos: [
         { // IdInfo
             id: "hd73hb",
-            //name: "name1",
             path: "/de/fd/gth",
+            multiplePaths: false,
             modifiedDate: "2000-01-01T10:00:00.000Z",
+            ownedByMe: true,
         },
         {
             id: "ke8436",
-            //name: "name1",
             path: "/kf84/asf",
-            multiplePaths: true,
+            multiplePaths: false,
             modifiedDate: "2000-01-01T10:00:00.000Z",
+            ownedByMe: true,
         },
     ],
     errors: [
@@ -136,10 +141,12 @@ InputNameInfo:
 
 InputIdInfo:
 {
-    folder: { // IdInfo
+    idInfo: { // IdInfo
         id: "hd73hb",
-        name: "name1",
         path: "/de/fd/gth",
+        multiplePaths: false,
+        modifiedDate: "2000-01-01T10:00:00.000Z",
+        ownedByMe: true,
     },
     errors: [
         "ID 'hd73hb' already found",
@@ -290,7 +297,7 @@ class DriveObjectProcessor {
         }
 
         const idInfosArr = Array.from(idInfosMap.values());
-        if (!showConfirmYesNoBox(`Really set the dates for ${idInfosArr.length ? 'the specified' : 'all the'}  objects?`)) {
+        if (!showConfirmYesNoBox(`Really set the dates for ${idInfosArr.length ? 'the specified' : 'all the'}  objects?`)) { // catch or something, so we can run this without a UI
             return false;
         }
         logS(sheet, '------------------ Starting update ------------------');
@@ -324,7 +331,7 @@ class DriveObjectProcessor {
      *
      * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
      *
-     * @returns {(FolderRangeInfo|null)} null if the range is invalid
+     * @returns {(RangeInfo|null)} null if the range is invalid
      */
     getRangeInfo() {
         const sheet = this.getSheet();
@@ -388,12 +395,12 @@ class DriveObjectProcessor {
      * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning.
      *
      * @param {string[]} names - array of strings
-     * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
-     *      entries will also have multiple entries in the map; the map is used here to figure out which folders are
-     *      already defined and then as the input for the actual processing
+     * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and a IdInfo as the value; an InputNameInfo with
+     *      multiple folder entries will also have multiple entries in the map; the map is used here to figure out
+     *      which folders are already defined and then as the input for the actual processing
      * @returns {InputNameInfo[]}
      */
-    validateNames(names, idInfos) {
+    validateNames(names, idInfosMap) { //ttt0 Add param for type. We want to reject shortcuts, and handle either files or folders
         /** @type InputNameInfo[] */
         const res = [];
         for (let i = 0; i < names.length; i += 1) {
@@ -401,47 +408,50 @@ class DriveObjectProcessor {
             if (!name) {
                 continue;
             }
-            const folders = [];    //ttt0 rename "folder"
+            /** @type IdInfo[] */
+            const idInfos = [];
+            /** @type string[] */
             const errors = [];
             const driveFolders = DriveApp.getFoldersByName(name);
             while (driveFolders.hasNext()) {
                 const driveFolder = driveFolders.next();
                 const idInfo = getIdInfo(driveFolder.getId());
-                folders.push(idInfo);
-                const existing = idInfos.get(idInfo.id);
+                idInfos.push(idInfo);
+                const existing = idInfosMap.get(idInfo.id);
                 if (existing) {
-                    errors.push(`Folder with the ID ${idInfo.id} already added`);
+                    errors.push(`Folder with the ID ${idInfo.id} already added`);     //ttt0: "Folder", here and around
                 } else {
-                    idInfos.set(idInfo.id, idInfo);
+                    idInfosMap.set(idInfo.id, idInfo);
                 }
                 // driveFolders.getContinuationToken(...) // Looks like something to get more
                 // entries, but we don't really care about this. "More than 1" is good enough
             }
-            const cnt = folders.length;
+            const cnt = idInfos.length;
             if (!cnt) {
                 errors.push(`No folder found with the name '${name}'`);
             } else if (cnt > 1) {
-                errors.push(`Found ${cnt} folders with the name '${name}'`);
+                errors.push(`Found ${cnt} folders with the name '${name}'`);  //ttt0 "folders" or files
             }
             res[i] = {
-                folders,
+                idInfos,
                 errors,
             };
         }
         return res;
     }
 
+
     /**
      * Returns an array the size of up to the "names" section without the title with the type InputIdInfo
      * For empty IDs, the corresponding entry is unedfined (or missing, at the end of the array).
      *
      * @param {string[]} ids
-     * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
-     *      entries will also have multiple entries in the map; the map is used here to figure out which folders are
-     *      already defined and then as the input for the actual processing
+     * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and an IdInfo as the value; an InputNameInfo with
+     *      multiple folder entries will also have multiple entries in the map; the map is used here to figure out
+     *      which folders are already defined and then as the input for the actual processing
      * @returns {InputIdInfo[]}
      */
-    validateIds(ids, idInfos) {
+    validateIds(ids, idInfosMap) { //ttt0 Add param for type. We want to reject shortcuts, and handle either files or folders
         /** @type InputIdInfo[] */
         const res = [];
         for (let i = 0; i < ids.length; i += 1) {
@@ -449,31 +459,31 @@ class DriveObjectProcessor {
             if (!id) {
                 continue;
             }
+            /** @type string[] */
             const errors = [];
-            let folder;
+            let idInfo;
             try {
-                const idInfo = getIdInfo(id);
-                const existing = idInfos.get(idInfo.id);
+                idInfo = getIdInfo(id);
+                const existing = idInfosMap.get(idInfo.id);
                 if (existing) {
                     errors.push(`Folder with the ID ${idInfo.id} already added`);
                 } else {
-                    idInfos.set(idInfo.id, idInfo);
+                    idInfosMap.set(idInfo.id, idInfo);
                 }
-                folder = idInfo;      //ttt0 rename "folder"
             } catch (err) {
-                errors.push(`Folder with ID ${id} not found`);
+                errors.push(`Folder with ID ${id} not found`);           //ttt0: "Folder", here and around
             }
             res[i] = {
-                folder,
+                idInfo,
                 errors,
-            }
+            };
         }
         return res;
     }
 
 
     /**
-     * @param {FolderRangeInfo} rangeInfo
+     * @param {RangeInfo} rangeInfo
      * @param {InputNameInfo[]} inputNameInfos
      * @param {InputIdInfo[]} inputIdInfos
      *
@@ -487,34 +497,39 @@ class DriveObjectProcessor {
         const sheet = this.getSheet();
 
         for (let i = 0; i < inputNameInfos.length; i += 1) {
-            const folderNameInfo = inputNameInfos[i];
-            if (!folderNameInfo) {
+            /** @type InputNameInfo */
+            const inputNameInfo = inputNameInfos[i];
+            if (!inputNameInfo) {
                 continue;
             }
+            /** @type string[] */
             let lines = [];
-            for (const folder of folderNameInfo.folders) {
-                lines.push(`${folder.path}${folder.multiplePaths ? ' (and others)' : ''} [${folder.id}]`);
+            for (const idInfo of inputNameInfo.idInfos) {
+                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''} [${idInfo.id}]`);
             }
             const cellRange = sheet.getRange(rangeInfo.namesBegin + 1 + i, 2);
-            if (folderNameInfo.errors.length) {
-                lines.push(...folderNameInfo.errors);
+            if (inputNameInfo.errors.length) {
+                lines.push(...inputNameInfo.errors);
                 cellRange.setBackground(ERROR_BG);
             }
             cellRange.setValue(lines.join('\n'));
         }
 
         for (let i = 0; i < inputIdInfos.length; i += 1) {
-            const folderIdInfo = inputIdInfos[i];
-            if (!folderIdInfo) {
+            /** @type InputIdInfo */
+            const inputIdInfo = inputIdInfos[i];
+            if (!inputIdInfo) {
                 continue;
             }
+            /** @type string[] */
             let lines = [];
-            if (folderIdInfo.folder) {
-                lines.push(`${folderIdInfo.folder.path}${folderIdInfo.folder.multiplePaths ? ' (and others)' : ''}  [${folderIdInfo.folder.id}]`); //ttt0 duplicate code "(and others)"
+            const idInfo = inputIdInfo.idInfo;
+            if (idInfo) {
+                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''}  [${idInfo.id}]`); //ttt0 duplicate code "(and others)"
             }
             const cellRange = sheet.getRange(rangeInfo.idsBegin + 1 + i, 2);
-            if (folderIdInfo.errors.length) {
-                lines.push(...folderIdInfo.errors);
+            if (inputIdInfo.errors.length) {
+                lines.push(...inputIdInfo.errors);
                 cellRange.setBackground(ERROR_BG);
             }
             cellRange.setValue(lines.join('\n'));
