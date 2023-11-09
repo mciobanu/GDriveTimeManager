@@ -27,9 +27,9 @@ const DEFAULT_SOURCE_HEIGHT = 5;
 const FOLDERS_SHEET_NAME = 'Folders';
 const FILES_SHEET_NAME = 'Files';
 
-const FOLDER_NAME_START = 'Folder names, one per cell (don\'t change this cell)';
-const FOLDER_ID_START = 'Folder IDs, one per cell (don\'t change this cell)';
-const LOG_START = 'Log (don\'t change this cell)';
+
+const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
+// is set at noon, so most timezones will see it as January 1st)
 
 //const ROOT_ID = 'root';
 
@@ -50,8 +50,8 @@ function tst02() {
     // const aa = getFilesSheet().getLastRow();
     // return aa;
 
-    logF('msg1');
-    logF('msg2');
+    //logS('msg1');
+    //logS('msg2');
 }
 
 
@@ -67,7 +67,7 @@ function tst02() {
 */
 
 /**
- * @typedef {Object} FolderRangeInfo
+ * @typedef {Object} FolderRangeInfo       //ttt0 rename "RangeInfo"
  * @property {number} namesBegin
  * @property {number} namesEnd
  * @property {number} idsBegin
@@ -166,13 +166,406 @@ function onOpen() {
 //ttt3 Review other triggers: https://developers.google.com/apps-script/guides/triggers
 
 
-/**
- * @returns {SpreadsheetApp.Sheet}
- */
-function getFoldersSheet() {
-    //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-    return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FOLDERS_SHEET_NAME);
+const LOG_START = 'Log (don\'t change this cell)';
+
+const NAMES_BG = '#efe';
+const IDS_BG = '#eef';
+const LOG_BG = '#ffc';
+const ERROR_BG = '#fbb';
+
+
+class DriveObjectProcessor {
+
+    /**
+     * @param {string} sheetName
+     * @param {string} nameLabelStart
+     * @param {string} idLabelStart
+     */
+    constructor(sheetName, nameLabelStart, idLabelStart) {
+        this.sheetName = sheetName;
+        this.nameLabelStart = nameLabelStart;
+        this.idLabelStart = idLabelStart;
+        this.logLabelStart = LOG_START;
+        this.rangeNotFoundErr = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
+            + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt1 perhaps
+        // make most members private, but not sure it's woth it, and V8 doesn't seem to support it
+
+    }
+
+    getSheet() {
+        //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+        return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+    }
+
+    setupSheet() {
+        this.addLabelsIfEmptySheet();
+        this.applyColorToSheet();
+    }
+
+    /**
+     * If the sheet is empty, add the section start labels
+     */
+    addLabelsIfEmptySheet() {
+        const sheet = this.getSheet();
+
+        if (sheet.getLastRow() !== 0) {
+            return;
+        }
+
+        const BOLD_FONT = 'bold';
+        let crtLine = 1;
+
+        function addLabel(label, increment) {
+            const range = sheet.getRange(crtLine, 1);
+            range.setValue(label);
+            range.setFontWeight(BOLD_FONT);
+            //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
+            range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
+            crtLine += increment;
+        }
+
+        addLabel(this.nameLabelStart, DEFAULT_SOURCE_HEIGHT);
+        addLabel(this.idLabelStart, DEFAULT_SOURCE_HEIGHT);
+        addLabel(this.logLabelStart, DEFAULT_SOURCE_HEIGHT);
+
+        // Use some educated guesses for the column widths ...
+        sheet.autoResizeColumn(1);
+        const w = sheet.getColumnWidth(1);
+        sheet.setColumnWidth(1, w * 1.2);
+        sheet.setColumnWidth(2, w * 2.4);
+    }
+
+    /**
+     * Sets the background for the first column, so names, IDs, and logs each have their own color.
+     * Throws if (some of) the section starts are not found or are not in their proper order.
+     *
+     * @return {boolean} true iff the range is valid
+     */
+    applyColorToSheet() {
+        const sheet = this.getSheet();
+        const rangeInfo = this.getRangeInfo();
+        if (!rangeInfo) {
+            return false;
+        }
+        sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
+        sheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
+        sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, 2).setBackground(LOG_BG);
+        return true;
+    }
+
+    /**
+     * @return {boolean} true iff the range is valid and the user confirmed it's OK to proceed
+     */
+    menuSetTimes() { //ttt0 rename
+
+        let sheet = this.getSheet();
+        if (!sheet) {
+            setupSheets();
+            this.getSheet();
+        }
+        sheet.activate();
+        const rangeInfo = this.getRangeInfo();
+        if (!rangeInfo) {
+            return false;
+        }
+
+        /** @type {Map<string, IdInfo>} */
+        const idInfosMap = new Map();
+        const names = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
+        const inputNameInfos = this.validateNames(names, idInfosMap);
+        const inputIds = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
+        const inputIdInfos = this.validateIds(inputIds, idInfosMap);
+        //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
+        // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
+        if (!this.updateUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos)) {
+            // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
+            return false;
+        }
+
+        const nameErrors = inputNameInfos.filter((val) => val.errors.length);
+        const idErrors = inputIdInfos.filter((val) => val.errors.length);
+        if (nameErrors.length || idErrors.length) {
+            this.showMessage('Found some errors, which need to be resolved before proceeding with setting the times');
+            return false;
+        }
+
+        const idInfosArr = Array.from(idInfosMap.values());
+        if (!showConfirmYesNoBox(`Really set the dates for ${idInfosArr.length ? 'the specified' : 'all the'}  objects?`)) {
+            return false;
+        }
+        logS(sheet, '------------------ Starting update ------------------');
+        DriveObjectProcessor.setTimes(sheet, idInfosArr);
+        logS(sheet, '------------------ Update finished ------------------');
+        return true;
+    }
+
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {number} column
+     * @param {number} rowStart
+     * @param {number} rowEnd exclusive
+     * @returns {string[]} data in a column, between 2 rows, as an array.
+     */
+    static getColumnData(sheet, column, rowStart, rowEnd) {
+        const rows = sheet.getRange(rowStart, column, rowEnd - rowStart).getValues();
+        /** @type string[] */
+        const res = [];
+        for (let i = 0; i < rows.length; i += 1) {
+            res.push(rows[i][0]);
+        }
+        return res;
+    }
+
+
+    /**
+     * Checks the first column for section delimiters and data and returns the ranges for names, IDs, and logs.
+     * To be used for coloring or log clearing.
+     * If the delimiters are not found in the expected order, returns null.
+     *
+     * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
+     *
+     * @returns {(FolderRangeInfo|null)} null if the range is invalid
+     */
+    getRangeInfo() {
+        const sheet = this.getSheet();
+        const lastRow = sheet.getLastRow();
+        const rows = sheet.getRange(1, 1, lastRow).getValues();
+        const expected = [this.nameLabelStart, this.idLabelStart, this.logLabelStart];
+        let expectedIndex = 0;
+        const found = [];
+        for (let i = 0; i < rows.length; i += 1) {
+            if (rows[i][0] === expected[expectedIndex]) {
+                found.push(i + 1); // spreadsheet indexes start at 1
+                expectedIndex++;
+                if (expectedIndex === expected.length) {
+                    break;
+                }
+            }
+        }
+        if (expectedIndex !== expected.length) {
+            this.showMessage(this.rangeNotFoundErr);
+            return null;
+        }
+        return {
+            namesBegin: found[0],
+            namesEnd: found[1],
+            idsBegin: found[1],
+            idsEnd: found[2],
+            logsBegin: found[2],
+            logsEnd: lastRow + 1, // "+1" to account for exclusivity of the end
+        };
+    }
+
+
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {IdInfo[]} idInfos
+     */
+    static setTimes(sheet, idInfos) {   //ttt0: different for files
+        if (!idInfos.length) {
+            const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
+            idInfos.push({
+                id: rootFolder.getId(),
+                path: '',
+                multiplePaths: false,
+                modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
+                ownedByMe: true, // doesn't really matter
+            });
+            logS(sheet, 'Processing all the files, as no folder names or IDs were specified');
+        }
+
+        const timeSetter = new TimeSetter();
+        for (const idInfo of idInfos) {
+            timeSetter.process(sheet, idInfo);
+        }
+    }
+
+
+    /**
+     * Returns an array the size of up to the "names" section without the title with the type InputNameInfo.
+     * For empty names, the corresponding entry is undefined (or missing, at the end of the array).
+     * For non-empty names, the corresponding entry is ideally one entry, when we have one path; otherwise it's an error.
+     * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning.
+     *
+     * @param {string[]} names - array of strings
+     * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
+     *      entries will also have multiple entries in the map; the map is used here to figure out which folders are
+     *      already defined and then as the input for the actual processing
+     * @returns {InputNameInfo[]}
+     */
+    validateNames(names, idInfos) {
+        /** @type InputNameInfo[] */
+        const res = [];
+        for (let i = 0; i < names.length; i += 1) {
+            const name = names[i];
+            if (!name) {
+                continue;
+            }
+            const folders = [];    //ttt0 rename "folder"
+            const errors = [];
+            const driveFolders = DriveApp.getFoldersByName(name);
+            while (driveFolders.hasNext()) {
+                const driveFolder = driveFolders.next();
+                const idInfo = getIdInfo(driveFolder.getId());
+                folders.push(idInfo);
+                const existing = idInfos.get(idInfo.id);
+                if (existing) {
+                    errors.push(`Folder with the ID ${idInfo.id} already added`);
+                } else {
+                    idInfos.set(idInfo.id, idInfo);
+                }
+                // driveFolders.getContinuationToken(...) // Looks like something to get more
+                // entries, but we don't really care about this. "More than 1" is good enough
+            }
+            const cnt = folders.length;
+            if (!cnt) {
+                errors.push(`No folder found with the name '${name}'`);
+            } else if (cnt > 1) {
+                errors.push(`Found ${cnt} folders with the name '${name}'`);
+            }
+            res[i] = {
+                folders,
+                errors,
+            };
+        }
+        return res;
+    }
+
+    /**
+     * Returns an array the size of up to the "names" section without the title with the type InputIdInfo
+     * For empty IDs, the corresponding entry is unedfined (or missing, at the end of the array).
+     *
+     * @param {string[]} ids
+     * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
+     *      entries will also have multiple entries in the map; the map is used here to figure out which folders are
+     *      already defined and then as the input for the actual processing
+     * @returns {InputIdInfo[]}
+     */
+    validateIds(ids, idInfos) {
+        /** @type InputIdInfo[] */
+        const res = [];
+        for (let i = 0; i < ids.length; i += 1) {
+            const id = ids[i];
+            if (!id) {
+                continue;
+            }
+            const errors = [];
+            let folder;
+            try {
+                const idInfo = getIdInfo(id);
+                const existing = idInfos.get(idInfo.id);
+                if (existing) {
+                    errors.push(`Folder with the ID ${idInfo.id} already added`);
+                } else {
+                    idInfos.set(idInfo.id, idInfo);
+                }
+                folder = idInfo;      //ttt0 rename "folder"
+            } catch (err) {
+                errors.push(`Folder with ID ${id} not found`);
+            }
+            res[i] = {
+                folder,
+                errors,
+            }
+        }
+        return res;
+    }
+
+
+    /**
+     * @param {FolderRangeInfo} rangeInfo
+     * @param {InputNameInfo[]} inputNameInfos
+     * @param {InputIdInfo[]} inputIdInfos
+     *
+     * @return {boolean} true iff the range is valid
+     */
+    updateUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos) {
+        this.clearErrors();
+        if (!this.applyColorToSheet()) {
+            return false;
+        }
+        const sheet = this.getSheet();
+
+        for (let i = 0; i < inputNameInfos.length; i += 1) {
+            const folderNameInfo = inputNameInfos[i];
+            if (!folderNameInfo) {
+                continue;
+            }
+            let lines = [];
+            for (const folder of folderNameInfo.folders) {
+                lines.push(`${folder.path}${folder.multiplePaths ? ' (and others)' : ''} [${folder.id}]`);
+            }
+            const cellRange = sheet.getRange(rangeInfo.namesBegin + 1 + i, 2);
+            if (folderNameInfo.errors.length) {
+                lines.push(...folderNameInfo.errors);
+                cellRange.setBackground(ERROR_BG);
+            }
+            cellRange.setValue(lines.join('\n'));
+        }
+
+        for (let i = 0; i < inputIdInfos.length; i += 1) {
+            const folderIdInfo = inputIdInfos[i];
+            if (!folderIdInfo) {
+                continue;
+            }
+            let lines = [];
+            if (folderIdInfo.folder) {
+                lines.push(`${folderIdInfo.folder.path}${folderIdInfo.folder.multiplePaths ? ' (and others)' : ''}  [${folderIdInfo.folder.id}]`); //ttt0 duplicate code "(and others)"
+            }
+            const cellRange = sheet.getRange(rangeInfo.idsBegin + 1 + i, 2);
+            if (folderIdInfo.errors.length) {
+                lines.push(...folderIdInfo.errors);
+                cellRange.setBackground(ERROR_BG);
+            }
+            cellRange.setValue(lines.join('\n'));
+        }
+
+        //sheet.autoResizeColumns(1, 2); //!!! Not right, as it include the logs
+        return true;
+    }
+
+
+    /**
+     * Erases the second column, which is supposed to be used for errors.
+     */
+    clearErrors() {
+        const sheet = this.getSheet();
+        sheet.getRange(1, 2, sheet.getLastRow()).clearContent();
+    }
+
+
+    /**
+     * Show a popup message. If that fails, logs to the log section in
+     * the corresponding sheet. If that also fails, logs to the console.
+     *
+     * @param {string} message
+     */
+    showMessage(message) {
+        try {
+            SpreadsheetApp.getUi().alert(message);
+        } catch {
+            logS(this.getSheet(), message);
+        }
+    }
 }
+
+
+const FOLDER_NAME_START = 'Folder names, one per cell (don\'t change this cell)';
+const FOLDER_ID_START = 'Folder IDs, one per cell (don\'t change this cell)';
+
+class DriveFolderProcessor extends DriveObjectProcessor {
+    constructor() {
+        super(FOLDERS_SHEET_NAME,
+            FOLDER_NAME_START,
+            FOLDER_ID_START);
+    }
+}
+// const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
+// const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
+
+
+const driveFolderProcessor = new DriveFolderProcessor();
+
 
 /**
  * @returns {SpreadsheetApp.Sheet}
@@ -187,7 +580,7 @@ function getFilesSheet() {
  * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
  */
 function setupSheets() {
-    if (!getFoldersSheet()) {
+    if (!driveFolderProcessor.getSheet()) {
         // If there's a single sheet, it's probably a new install, so we can rename it.
         const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
         if (sheets.length === 1) {
@@ -198,7 +591,7 @@ function setupSheets() {
         }
     }
 
-    if (!getFoldersSheet()) {
+    if (!driveFolderProcessor.getSheet()) {
         const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
         sheet.setName(FOLDERS_SHEET_NAME);
     }
@@ -207,223 +600,35 @@ function setupSheets() {
         sheet.setName(FILES_SHEET_NAME);
     }*/
 
-    getFoldersSheet().activate(); //ttt3 This doesn't work when running the script in the editor, but
+    driveFolderProcessor.getSheet().activate(); //ttt3 This doesn't work when running the script in the editor, but
     // works when starting from the Sheet menu. At least it doesn't crash
 
-    setupFoldersSheet();
-}
-
-function setupFoldersSheet() {
-    addLabelsIfEmptyFoldersSheet();
-    applyColorToFoldersSheet();
+    driveFolderProcessor.setupSheet();
 }
 
 
-const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
-    + ' delete or rename the "Folders" sheet and then reopen the spreadsheet';
 
-
-/**
- * If the "Folders" sheet is empty, add the section start labels
- */
-function addLabelsIfEmptyFoldersSheet() {
-    const foldersSheet = getFoldersSheet();
-
-    if (foldersSheet.getLastRow() !== 0) {
-        return;
-    }
-
-    const BOLD_FONT = 'bold';
-    let crtLine = 1;
-
-    function addLabel(label, increment) {
-        const range = foldersSheet.getRange(crtLine, 1);
-        range.setValue(label);
-        range.setFontWeight(BOLD_FONT);
-        //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
-        range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
-        crtLine += increment;
-    }
-
-    addLabel(FOLDER_NAME_START, DEFAULT_SOURCE_HEIGHT);
-    addLabel(FOLDER_ID_START, DEFAULT_SOURCE_HEIGHT);
-    addLabel(LOG_START, DEFAULT_SOURCE_HEIGHT);
-
-    // Use some educated guesses for the column widths ...
-    foldersSheet.autoResizeColumn(1);
-    const w = foldersSheet.getColumnWidth(1);
-    foldersSheet.setColumnWidth(1, w * 1.2);
-    foldersSheet.setColumnWidth(2, w * 2.4);
+function menuSetTimesFolders() {
+    return driveFolderProcessor.menuSetTimes();
 }
 
-const NAMES_BG = '#efe';
-const IDS_BG = '#eef';
-const LOG_BG = '#ffc';
-const ERROR_BG = '#fbb';
-
-/**
- * Sets the background for the first column, so names, IDs, and logs each have their own color.
- * Throws if (some of) the section starts are not found or are not in their proper order.
- *
- * @return {boolean} true iff the range is valid
- */
-function applyColorToFoldersSheet() {
-    const foldersSheet = getFoldersSheet();
-    const rangeInfo = getFolderRangeInfo();
-    if (!rangeInfo) {
-        return false;
-    }
-    foldersSheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
-    foldersSheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
-    foldersSheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, 2).setBackground(LOG_BG);
-    return true;
-}
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
-/**
- * @return {boolean} true iff the range is valid and the user confirmed it's OK to proceed
- */
-function menuSetTimesFolders() {
-
-    let foldersSheet = getFoldersSheet();
-    if (!foldersSheet) {
-        setupSheets();
-        foldersSheet = getFoldersSheet();
-    }
-    foldersSheet.activate();
-    const rangeInfo = getFolderRangeInfo();
-    if (!rangeInfo) {
-        return false;
-    }
-
-    /** @type {Map<string, IdInfo>} */
-    const idInfosMap = new Map();
-    const names = getColumnData(foldersSheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
-    const inputNameInfos = validateFolderNames(names, idInfosMap);
-    const inputIds = getColumnData(foldersSheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
-    const inputIdInfos = validateFolderIds(inputIds, idInfosMap);
-    //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
-    // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
-    if (!updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos)) {
-        // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
-        return false;
-    }
-
-    const nameErrors = inputNameInfos.filter((val) => val.errors.length);
-    const idErrors = inputIdInfos.filter((val) => val.errors.length);
-    if (nameErrors.length || idErrors.length) {
-        showFolderMessage('Found some errors, which need to be resolved before proceeding with setting the times');
-        return false;
-    }
-
-    const idInfosArr = Array.from(idInfosMap.values());
-    if (!showConfirmYesNoBox(`Really set the dates for ${idInfosArr.length ? 'the specified' : 'all the'}  folders?`)) {
-        return false;
-    }
-    logF('------------------ Starting update ------------------');
-    setTimes(idInfosArr);
-    logF('------------------ Update finished ------------------');
-    return true;
-}
-
-
-/**
- * @param {SpreadsheetApp.Sheet} sheet
- * @param {number} column
- * @param {number} rowStart
- * @param {number} rowEnd exclusive
- * @returns {string[]} data in a column, between 2 rows, as an array.
- */
-function getColumnData(sheet, column, rowStart, rowEnd) {
-    const rows = sheet.getRange(rowStart, column, rowEnd - rowStart).getValues();
-    /** @type string[] */
-    const res = [];
-    for (let i = 0; i < rows.length; i += 1) {
-        res.push(rows[i][0]);
-    }
-    return res;
-}
-
-
-/**
- * Checks the first column for section delimiters and data and returns the ranges for names, IDs, and logs.
- * To be used for coloring or log clearing.
- * If the delimiters are not found in the expected order, returns null.
- *
- * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
- *
- * @returns {(FolderRangeInfo|null)} null if the range is invalid
- */
-function getFolderRangeInfo() {
-    const foldersSheet = getFoldersSheet();
-    const lastRow = foldersSheet.getLastRow();
-    const rows = foldersSheet.getRange(1, 1, lastRow).getValues();
-    const expected = [FOLDER_NAME_START, FOLDER_ID_START, LOG_START];
-    let expectedIndex = 0;
-    const found = [];
-    for (let i = 0; i < rows.length; i += 1) {
-        if (rows[i][0] === expected[expectedIndex]) {
-            found.push(i + 1); // spreadsheet indexes start at 1
-            expectedIndex++;
-            if (expectedIndex === expected.length) {
-                break;
-            }
-        }
-    }
-    if (expectedIndex !== expected.length) {
-        showFolderMessage(RANGE_NOT_FOUND_ERR);
-        return null;
-    }
-    return {
-        namesBegin: found[0],
-        namesEnd: found[1],
-        idsBegin: found[1],
-        idsEnd: found[2],
-        logsBegin: found[2],
-        logsEnd: lastRow + 1, // "+1" to account for exclusivity of the end
-    };
-}
-
-
-/**
- * @param {IdInfo[]} idInfos
- */
-function setTimes(idInfos) {
-    if (!idInfos.length) {
-        const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
-        idInfos.push({
-            id: rootFolder.getId(),
-            path: '',
-            multiplePaths: false,
-            modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
-            ownedByMe: true, // doesn't really matter
-        });
-        logF('Processing all the files, as no folder names or IDs were specified');
-    }
-
-    const timeSetter = new TimeSetter();
-    for (const idInfo of idInfos) {
-        timeSetter.process(idInfo);
-    }
-}
-
-
-const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
-// is set at noon, so most timezones will see it as January 1st)
-
 class TimeSetter {
+
     constructor() {
         /** @type {Map<string, string>} */
         this.processed = new Map();
     }
 
     /**
+     * @param {SpreadsheetApp.Sheet} sheet
      * @param {IdInfo} idInfo
      * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
      */
-    process(idInfo) {
+    process(sheet, idInfo) {     //ttt0 rename processFolder(), add processFile()
         const existing = this.processed.get(idInfo.id);
         if (existing) {
             return existing;
@@ -449,7 +654,7 @@ class TimeSetter {
                     const item = items.items[i];
                     let newTime = res;
                     if (item.mimeType === FOLDER_MIME) {
-                        newTime = this.process({
+                        newTime = this.process(sheet, {
                             id: item.id,
                             modifiedDate: item.modifiedDate,
                             multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
@@ -460,7 +665,7 @@ class TimeSetter {
                         if (item.mimeType !== SHORTCUT_MIME) {
                             newTime = item.modifiedDate;
                         } else {
-                            logF(`Ignoring date of shortcut ${idInfo.path}/${item.title}`);
+                            logS(sheet, `Ignoring date of shortcut ${idInfo.path}/${item.title}`);
                         }
                     }
                     if (newTime > res) {
@@ -473,7 +678,7 @@ class TimeSetter {
                 // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
                 // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
                 // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
-                logF(msg);
+                logS(sheet, msg);
                 //ttt2 improve
             }
         } while (pageToken);
@@ -483,19 +688,19 @@ class TimeSetter {
                 // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
                 try {
                     if (idInfo.ownedByMe) {
-                        logF(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
+                        logS(sheet, `Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
                         updateModifiedTime(idInfo.id, res);
                     } else {
-                        logF(`Not updating ${idInfo.path}, which has a different owner`);
+                        logS(sheet, `Not updating ${idInfo.path}, which has a different owner`);
                     }
                 } catch (err) {
                     const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
-                    logF(msg);
+                    logS(sheet, msg);
                     //ttt2 improve
                 }
             }
         } else {
-            logF(`Time ${res} is already correct for ${idInfo.path}`);
+            logS(sheet, `Time ${res} is already correct for ${idInfo.path}`);
         }
         this.processed.set(idInfo.id, res);
         return res;
@@ -513,98 +718,6 @@ function updateModifiedTime(id, itemTime) {
     const optionalArgs = {setModifiedDate: true}; // https://developers.google.com/drive/api/reference/rest/v2/files/update#query-parameters
     Drive.Files.update(body, id, blob, optionalArgs); // This fails silently for non-owners, but we check for that
     // before calling updateModifiedTime()
-}
-
-
-/**
- * Returns an array the size of up to the "names" section without the title with the type InputNameInfo.
- * For empty names, the corresponding entry is undefined (or missing, at the end of the array).
- * For non-empty names, the corresponding entry is like in the comment above. We want exactly one entry, otherwise it's an error.
- * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning.
- *
- * @param {string[]} names - array of strings
- * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
- *      entries will also have multiple entries in the map; the map is used here to figure out which folders are
- *      already defined and then as the input for the actual processing
- * @returns {InputNameInfo[]}
- */
-function validateFolderNames(names, idInfos) {
-    /** @type InputNameInfo[] */
-    const res = [];
-    for (let i = 0; i < names.length; i += 1) {
-        const name = names[i];
-        if (!name) {
-            continue;
-        }
-        const folders = [];
-        const errors = [];
-        const driveFolders = DriveApp.getFoldersByName(name);
-        while (driveFolders.hasNext()) {
-            const driveFolder = driveFolders.next();
-            const idInfo = getIdInfo(driveFolder.getId());
-            folders.push(idInfo);
-            const existing = idInfos.get(idInfo.id);
-            if (existing) {
-                errors.push(`Folder with the ID ${idInfo.id} already added`);
-            } else {
-                idInfos.set(idInfo.id, idInfo);
-            }
-            // driveFolders.getContinuationToken(...) // Looks like something to get more
-            // entries, but we don't really care about this. "More than 1" is good enough
-        }
-        const cnt = folders.length;
-        if (!cnt) {
-            errors.push(`No folder found with the name '${name}'`);
-        } else if (cnt > 1) {
-            errors.push(`Found ${cnt} folders with the name '${name}'`);
-        }
-        res[i] = {
-            folders,
-            errors,
-        };
-    }
-    return res;
-}
-
-
-/**
- * Returns an array the size of up to the "names" section without the title with the type InputIdInfo
- * For empty IDs, the corresponding entry is unedfined (or missing, at the end of the array).
- *
- * @param {string[]} ids
- * @param {Map<string, IdInfo>} idInfos - map with ID as key and a IdInfo as the value; a FolderInfo with multiple folders
- *      entries will also have multiple entries in the map; the map is used here to figure out which folders are
- *      already defined and then as the input for the actual processing
- * @returns {InputIdInfo[]}
- */
-function validateFolderIds(ids, idInfos) {
-    /** @type InputIdInfo[] */
-    const res = [];
-    for (let i = 0; i < ids.length; i += 1) {
-        const id = ids[i];
-        if (!id) {
-            continue;
-        }
-        const errors = [];
-        let folder;
-        try {
-            const idInfo = getIdInfo(id);
-            const existing = idInfos.get(idInfo.id);
-            if (existing) {
-                errors.push(`Folder with the ID ${idInfo.id} already added`);
-            } else {
-                idInfos.set(idInfo.id, idInfo);
-            }
-            folder = idInfo;
-        } catch (err) {
-            errors.push(`Folder with ID ${id} not found`);
-        }
-        res[i] = {
-            folder,
-            errors,
-        }
-    }
-    return res;
 }
 
 
@@ -640,94 +753,18 @@ function getIdInfo(id) {
 
 
 /**
- * @param {FolderRangeInfo} rangeInfo
- * @param {InputNameInfo[]} inputNameInfos
- * @param {InputIdInfo[]} inputIdInfos
- *
- * @return {boolean} true iff the range is valid
- */
-function updateFolderUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos) {
-    clearErrors();
-    if (!applyColorToFoldersSheet()) {
-        return false;
-    }
-    const foldersSheet = getFoldersSheet();
-
-    for (let i = 0; i < inputNameInfos.length; i += 1) {
-        const folderNameInfo = inputNameInfos[i];
-        if (!folderNameInfo) {
-            continue;
-        }
-        let lines = [];
-        for (const folder of folderNameInfo.folders) {
-            lines.push(`${folder.path}${folder.multiplePaths ? ' (and others)' : ''} [${folder.id}]`);
-        }
-        const cellRange = foldersSheet.getRange(rangeInfo.namesBegin + 1 + i, 2);
-        if (folderNameInfo.errors.length) {
-            lines.push(...folderNameInfo.errors);
-            cellRange.setBackground(ERROR_BG);
-        }
-        cellRange.setValue(lines.join('\n'));
-    }
-
-    for (let i = 0; i < inputIdInfos.length; i += 1) {
-        const folderIdInfo = inputIdInfos[i];
-        if (!folderIdInfo) {
-            continue;
-        }
-        let lines = [];
-        if (folderIdInfo.folder) {
-            lines.push(`${folderIdInfo.folder.path}${folderIdInfo.folder.multiplePaths ? ' (and others)' : ''}  [${folderIdInfo.folder.id}]`); //ttt0 duplicate code "(and others)"
-        }
-        const cellRange = foldersSheet.getRange(rangeInfo.idsBegin + 1 + i, 2);
-        if (folderIdInfo.errors.length) {
-            lines.push(...folderIdInfo.errors);
-            cellRange.setBackground(ERROR_BG);
-        }
-        cellRange.setValue(lines.join('\n'));
-    }
-
-    //foldersSheet.autoResizeColumns(1, 2); //!!! Not right, as it include the logs
-    return true;
-}
-
-/**
- * Erases the second column, which is supposed to be used for errors.
- */
-function clearErrors() {
-    const foldersSheet = getFoldersSheet();
-    foldersSheet.getRange(1, 2, foldersSheet.getLastRow()).clearContent();
-}
-
-
-/**
- * Logs a message in the "Folders" sheet. If that fails, logs to the console.
+ * Logs a message in the given sheet. If that fails, logs to the console.
+ * @param {SpreadsheetApp.Sheet} sheet
  * @param {string} message
  */
-function logF(message) {
+function logS(sheet, message) {
     try {
-        const foldersSheet = getFoldersSheet();
-        const row = foldersSheet.getLastRow() + 1;
-        const range = foldersSheet.getRange(row, 1);
+        const row = sheet.getLastRow() + 1;
+        const range = sheet.getRange(row, 1);
         range.setValue(`${formatDate(new Date())} ${message}`);
-        foldersSheet.getRange(row, 1, 1, 2).setBackground(LOG_BG);
+        sheet.getRange(row, 1, 1, 2).setBackground(LOG_BG);
     } catch (err) {
         console.log(`Failed to log in UI "${message}". "${err}"`);
-    }
-}
-
-
-/**
- * Show a popup message in the "Folders" sheet. If that fails, logs to the log section in
- * the "Folders" sheet. If that also fails, logs to the console.
- *
- * @param {string} message
- */
-function showFolderMessage(message) {
-    try {
-        SpreadsheetApp.getUi().alert(message);
-    } catch {
-        logF(message);
     }
 }
 
@@ -761,3 +798,6 @@ function formatDate(date) {
 }
 
 //ttt1 Perhaps have a "dry-run"
+
+//ttt0: Rename sheet, go to menu. Starts creating and then there's an error. It should exit immediately, or ask for
+// confirmation to create, and, if so, work OK

@@ -29,7 +29,7 @@ After running the script, we'll have these (changes in **bold**):
 
 ## Limitations
 * The script wasn't tested with shared drives, and it's unclear what to expect in such a scenario.
-* Shortcuts are currently ignored, as their change time seems best ignored.
+* Shortcuts are currently skipped, as their change time seems best ignored.
 * For folders that have other owners we don't try to set the date. (It doesn't seem to work, anyway.)
 
 ## Installation
