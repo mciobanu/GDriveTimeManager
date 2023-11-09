@@ -54,75 +54,6 @@ function tst02() {
     logF('msg2');
 }
 
-/**
- * @returns {SpreadsheetApp.Sheet}
- */
-function getFoldersSheet() {
-    //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-    return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FOLDERS_SHEET_NAME);
-}
-
-/**
- * @returns {SpreadsheetApp.Sheet}
- */
-function getFilesSheet() {
-    //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-    return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FILES_SHEET_NAME);
-}
-
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * Run automatically when the corresponding spreadsheet is opened
- */
-function onOpen() {
-    // https://developers.google.com/apps-script/guides/menus
-    const ui = SpreadsheetApp.getUi();
-    ui.createMenu('Modification times')
-        .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
-        //.addItem(`List content of specified  folders`, 'menuListFolders')
-        //.addItem(`Change time for file ${SOURCE_LIST}`, 'menuSetTimesFile') //ttt0 implement
-        .addToUi();
-
-    setupSheets();
-}
-//ttt3 Review other triggers: https://developers.google.com/apps-script/guides/triggers
-
-/**
- * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
- */
-function setupSheets() {
-    if (!getFoldersSheet()) {
-        // If there's a single sheet, it's probably a new install, so we can rename it.
-        const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
-        if (sheets.length === 1) {
-            if (sheets[0].getLastRow() === 0) {
-                // There's no data. Just rename // ttt2 There might be formatting
-                sheets[0].setName(FOLDERS_SHEET_NAME);
-            }
-        }
-    }
-
-    if (!getFoldersSheet()) {
-        const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
-        sheet.setName(FOLDERS_SHEET_NAME);
-    }
-    /*if (!getFilesSheet()) {
-        const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
-        sheet.setName(FILES_SHEET_NAME);
-    }*/
-
-    getFoldersSheet().activate(); //ttt3 This doesn't work when running the script in the editor, but
-    // works when starting from the Sheet menu. At least it doesn't crash
-
-    setupFoldersSheet();
-}
-
-function setupFoldersSheet() {
-    addLabelsIfEmptyFoldersSheet();
-    applyColorToFoldersSheet();
-}
-
 
 /*
 {
@@ -135,10 +66,6 @@ function setupFoldersSheet() {
 }
 */
 
-const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
-    + ' delete or rename the "Folders" sheet and then reopen the spreadsheet';
-
-
 /**
  * @typedef {Object} FolderRangeInfo
  * @property {number} namesBegin
@@ -149,121 +76,6 @@ const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix 
  * @property {number} logsEnd
  */
 
-/**
- * Checks the first column for section delimiters and data and returns the ranges for names, IDs, and logs.
- * To be used for coloring or log clearing.
- * If the delimiters are not found in the expected order, returns null.
- *
- * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
- *
- * @returns {(FolderRangeInfo|null)} null if the range is invalid
- */
-function getFolderRangeInfo() {
-    const foldersSheet = getFoldersSheet();
-    const lastRow = foldersSheet.getLastRow();
-    const rows = foldersSheet.getRange(1, 1, lastRow).getValues();
-    const expected = [FOLDER_NAME_START, FOLDER_ID_START, LOG_START];
-    let expectedIndex = 0;
-    const found = [];
-    for (let i = 0; i < rows.length; i += 1) {
-        if (rows[i][0] === expected[expectedIndex]) {
-            found.push(i + 1); // spreadsheet indexes start at 1
-            expectedIndex++;
-            if (expectedIndex === expected.length) {
-                break;
-            }
-        }
-    }
-    if (expectedIndex !== expected.length) {
-        showFolderMessage(RANGE_NOT_FOUND_ERR);
-        return null;
-    }
-    return {
-        namesBegin: found[0],
-        namesEnd: found[1],
-        idsBegin: found[1],
-        idsEnd: found[2],
-        logsBegin: found[2],
-        logsEnd: lastRow + 1, // "+1" to account for exclusivity of the end
-    };
-}
-
-
-/**
- * If the "Folders" sheet is empty, add the section start labels
- */
-function addLabelsIfEmptyFoldersSheet() {
-    const foldersSheet = getFoldersSheet();
-
-    if (foldersSheet.getLastRow() !== 0) {
-        return;
-    }
-
-    const BOLD_FONT = 'bold';
-    let crtLine = 1;
-
-    function addLabel(label, increment) {
-        const range = foldersSheet.getRange(crtLine, 1);
-        range.setValue(label);
-        range.setFontWeight(BOLD_FONT);
-        //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
-        range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
-        crtLine += increment;
-    }
-
-    addLabel(FOLDER_NAME_START, DEFAULT_SOURCE_HEIGHT);
-    addLabel(FOLDER_ID_START, DEFAULT_SOURCE_HEIGHT);
-    addLabel(LOG_START, DEFAULT_SOURCE_HEIGHT);
-
-    // Use some educated guesses for the column widths ...
-    foldersSheet.autoResizeColumn(1);
-    const w = foldersSheet.getColumnWidth(1);
-    foldersSheet.setColumnWidth(1, w * 1.2);
-    foldersSheet.setColumnWidth(2, w * 2.4);
-}
-
-const NAMES_BG = '#efe';
-const IDS_BG = '#eef';
-const LOG_BG = '#ffc';
-const ERROR_BG = '#fbb';
-
-/**
- * Sets the background for the first column, so names, IDs, and logs each have their own color.
- * Throws if (some of) the section starts are not found or are not in their proper order.
- *
- * @return {boolean} true iff the range is valid
- */
-function applyColorToFoldersSheet() {
-    const foldersSheet = getFoldersSheet();
-    const rangeInfo = getFolderRangeInfo();
-    if (!rangeInfo) {
-        return false;
-    }
-    foldersSheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
-    foldersSheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
-    foldersSheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, 2).setBackground(LOG_BG);
-    return true;
-}
-
-/**
- * @param {SpreadsheetApp.Sheet} sheet
- * @param {number} column
- * @param {number} rowStart
- * @param {number} rowEnd exclusive
- * @returns {string[]} data in a column, between 2 rows, as an array.
- */
-function getColumnData(sheet, column, rowStart, rowEnd) {
-    const rows = sheet.getRange(rowStart, column, rowEnd - rowStart).getValues();
-    /** @type string[] */
-    const res = [];
-    for (let i = 0; i < rows.length; i += 1) {
-        res.push(rows[i][0]);
-    }
-    return res;
-}
-
-const FOLDER_MIME = 'application/vnd.google-apps.folder';
-const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
 /**
  * IdInfo descr
@@ -335,6 +147,141 @@ InputIdInfo:
 }
 */
 
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * Run automatically when the corresponding spreadsheet is opened
+ */
+function onOpen() {
+    // https://developers.google.com/apps-script/guides/menus
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('Modification times')
+        .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
+        //.addItem(`List content of specified  folders`, 'menuListFolders')
+        //.addItem(`Change time for file ${SOURCE_LIST}`, 'menuSetTimesFile') //ttt0 implement
+        .addToUi();
+
+    setupSheets();
+}
+//ttt3 Review other triggers: https://developers.google.com/apps-script/guides/triggers
+
+
+/**
+ * @returns {SpreadsheetApp.Sheet}
+ */
+function getFoldersSheet() {
+    //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+    return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FOLDERS_SHEET_NAME);
+}
+
+/**
+ * @returns {SpreadsheetApp.Sheet}
+ */
+function getFilesSheet() {
+    //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+    return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FILES_SHEET_NAME);
+}
+
+
+/**
+ * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
+ */
+function setupSheets() {
+    if (!getFoldersSheet()) {
+        // If there's a single sheet, it's probably a new install, so we can rename it.
+        const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+        if (sheets.length === 1) {
+            if (sheets[0].getLastRow() === 0) {
+                // There's no data. Just rename // ttt2 There might be formatting
+                sheets[0].setName(FOLDERS_SHEET_NAME);
+            }
+        }
+    }
+
+    if (!getFoldersSheet()) {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
+        sheet.setName(FOLDERS_SHEET_NAME);
+    }
+    /*if (!getFilesSheet()) {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
+        sheet.setName(FILES_SHEET_NAME);
+    }*/
+
+    getFoldersSheet().activate(); //ttt3 This doesn't work when running the script in the editor, but
+    // works when starting from the Sheet menu. At least it doesn't crash
+
+    setupFoldersSheet();
+}
+
+function setupFoldersSheet() {
+    addLabelsIfEmptyFoldersSheet();
+    applyColorToFoldersSheet();
+}
+
+
+const RANGE_NOT_FOUND_ERR = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
+    + ' delete or rename the "Folders" sheet and then reopen the spreadsheet';
+
+
+/**
+ * If the "Folders" sheet is empty, add the section start labels
+ */
+function addLabelsIfEmptyFoldersSheet() {
+    const foldersSheet = getFoldersSheet();
+
+    if (foldersSheet.getLastRow() !== 0) {
+        return;
+    }
+
+    const BOLD_FONT = 'bold';
+    let crtLine = 1;
+
+    function addLabel(label, increment) {
+        const range = foldersSheet.getRange(crtLine, 1);
+        range.setValue(label);
+        range.setFontWeight(BOLD_FONT);
+        //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
+        range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
+        crtLine += increment;
+    }
+
+    addLabel(FOLDER_NAME_START, DEFAULT_SOURCE_HEIGHT);
+    addLabel(FOLDER_ID_START, DEFAULT_SOURCE_HEIGHT);
+    addLabel(LOG_START, DEFAULT_SOURCE_HEIGHT);
+
+    // Use some educated guesses for the column widths ...
+    foldersSheet.autoResizeColumn(1);
+    const w = foldersSheet.getColumnWidth(1);
+    foldersSheet.setColumnWidth(1, w * 1.2);
+    foldersSheet.setColumnWidth(2, w * 2.4);
+}
+
+const NAMES_BG = '#efe';
+const IDS_BG = '#eef';
+const LOG_BG = '#ffc';
+const ERROR_BG = '#fbb';
+
+/**
+ * Sets the background for the first column, so names, IDs, and logs each have their own color.
+ * Throws if (some of) the section starts are not found or are not in their proper order.
+ *
+ * @return {boolean} true iff the range is valid
+ */
+function applyColorToFoldersSheet() {
+    const foldersSheet = getFoldersSheet();
+    const rangeInfo = getFolderRangeInfo();
+    if (!rangeInfo) {
+        return false;
+    }
+    foldersSheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
+    foldersSheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
+    foldersSheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, 2).setBackground(LOG_BG);
+    return true;
+}
+
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
+
 /**
  * @return {boolean} true iff the range is valid and the user confirmed it's OK to proceed
  */
@@ -380,6 +327,88 @@ function menuSetTimesFolders() {
     logF('------------------ Update finished ------------------');
     return true;
 }
+
+
+/**
+ * @param {SpreadsheetApp.Sheet} sheet
+ * @param {number} column
+ * @param {number} rowStart
+ * @param {number} rowEnd exclusive
+ * @returns {string[]} data in a column, between 2 rows, as an array.
+ */
+function getColumnData(sheet, column, rowStart, rowEnd) {
+    const rows = sheet.getRange(rowStart, column, rowEnd - rowStart).getValues();
+    /** @type string[] */
+    const res = [];
+    for (let i = 0; i < rows.length; i += 1) {
+        res.push(rows[i][0]);
+    }
+    return res;
+}
+
+
+/**
+ * Checks the first column for section delimiters and data and returns the ranges for names, IDs, and logs.
+ * To be used for coloring or log clearing.
+ * If the delimiters are not found in the expected order, returns null.
+ *
+ * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
+ *
+ * @returns {(FolderRangeInfo|null)} null if the range is invalid
+ */
+function getFolderRangeInfo() {
+    const foldersSheet = getFoldersSheet();
+    const lastRow = foldersSheet.getLastRow();
+    const rows = foldersSheet.getRange(1, 1, lastRow).getValues();
+    const expected = [FOLDER_NAME_START, FOLDER_ID_START, LOG_START];
+    let expectedIndex = 0;
+    const found = [];
+    for (let i = 0; i < rows.length; i += 1) {
+        if (rows[i][0] === expected[expectedIndex]) {
+            found.push(i + 1); // spreadsheet indexes start at 1
+            expectedIndex++;
+            if (expectedIndex === expected.length) {
+                break;
+            }
+        }
+    }
+    if (expectedIndex !== expected.length) {
+        showFolderMessage(RANGE_NOT_FOUND_ERR);
+        return null;
+    }
+    return {
+        namesBegin: found[0],
+        namesEnd: found[1],
+        idsBegin: found[1],
+        idsEnd: found[2],
+        logsBegin: found[2],
+        logsEnd: lastRow + 1, // "+1" to account for exclusivity of the end
+    };
+}
+
+
+/**
+ * @param {IdInfo[]} idInfos
+ */
+function setTimes(idInfos) {
+    if (!idInfos.length) {
+        const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
+        idInfos.push({
+            id: rootFolder.getId(),
+            path: '',
+            multiplePaths: false,
+            modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
+            ownedByMe: true, // doesn't really matter
+        });
+        logF('Processing all the files, as no folder names or IDs were specified');
+    }
+
+    const timeSetter = new TimeSetter();
+    for (const idInfo of idInfos) {
+        timeSetter.process(idInfo);
+    }
+}
+
 
 const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
 // is set at noon, so most timezones will see it as January 1st)
@@ -484,29 +513,6 @@ function updateModifiedTime(id, itemTime) {
     const optionalArgs = {setModifiedDate: true}; // https://developers.google.com/drive/api/reference/rest/v2/files/update#query-parameters
     Drive.Files.update(body, id, blob, optionalArgs); // This fails silently for non-owners, but we check for that
     // before calling updateModifiedTime()
-}
-
-
-/**
- * @param {IdInfo[]} idInfos
- */
-function setTimes(idInfos) {
-    if (!idInfos.length) {
-        const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
-        idInfos.push({
-            id: rootFolder.getId(),
-            path: '',
-            multiplePaths: false,
-            modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
-            ownedByMe: true, // doesn't really matter
-        });
-        logF('Processing all the files, as no folder names or IDs were specified');
-    }
-
-    const timeSetter = new TimeSetter();
-    for (const idInfo of idInfos) {
-        timeSetter.process(idInfo);
-    }
 }
 
 
