@@ -52,6 +52,18 @@ function tst02() {
 
     //logS('msg1');
     //logS('msg2');
+
+    //const query = `"1wKMfIBhstKUVf4yRYQlgXUuOlsiI6OZ8" in parents and trashed = false`;
+    const query = `title = 'testmtime03' and trashed = false`;
+    let pageToken = null;
+
+    const items = Drive.Files.list({
+        q: query,
+        maxResults: 100,
+        pageToken,
+    });
+
+    console.log(items.items ? items.items.length : 'no results');
 }
 
 
@@ -157,6 +169,7 @@ InputIdInfo:
 
 /**
  * @typedef {Object} NameAndIdValidationInfo
+ *
  * @property {RangeInfo} rangeInfo
  * @property {InputNameInfo[]} inputNameInfos
  * @property {InputIdInfo[]} inputIdInfos
@@ -198,8 +211,9 @@ class DriveObjectProcessor {
      * @param {string} sheetName
      * @param {string} nameLabelStart
      * @param {string} idLabelStart
+     * @param {boolean} expectFolders whether we want folders or files; (enum would be nicer, but JS doesn't have them)
      */
-    constructor(sheetName, nameLabelStart, idLabelStart) {
+    constructor(sheetName, nameLabelStart, idLabelStart, expectFolders) {
         this.sheetName = sheetName;
         this.nameLabelStart = nameLabelStart;
         this.idLabelStart = idLabelStart;
@@ -208,9 +222,16 @@ class DriveObjectProcessor {
             + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt1 perhaps
         // make most members private, but not sure it's woth it, and V8 doesn't seem to support it
 
+        this.expectFolders = expectFolders;
+        this.objectLabel = expectFolders ? 'Folder' : 'File';
+        this.objectLabelLc = expectFolders ? 'folder' : 'file';
+        this.reverseObjectLabelLc = expectFolders ? 'file' : 'folder';
     }
 
-    getSheet() {
+    /**
+     * @return {GoogleAppsScript.Spreadsheet.Sheet}
+     */
+    getSheet() { //ttt0: pass as param in some functions
         //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
         return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
     }
@@ -291,7 +312,7 @@ class DriveObjectProcessor {
         /** @type {Map<string, IdInfo>} */
         const idInfosMap = new Map();
         const names = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
-        const inputNameInfos = this.validateNames(names, idInfosMap);
+        const inputNameInfos = this.validateNames(sheet, names, idInfosMap);
         const inputIds = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
         const inputIdInfos = this.validateIds(inputIds, idInfosMap);
         const nameErrors = inputNameInfos.filter((val) => val.errors.length);
@@ -336,7 +357,7 @@ class DriveObjectProcessor {
      * @returns {(RangeInfo|null)} null if the range is invalid
      */
     getRangeInfo() {
-        const sheet = this.getSheet();
+        const sheet = this.getSheet(); //ttt0: pass a param, here and elsewhere
         const lastRow = sheet.getLastRow();
         const rows = sheet.getRange(1, 1, lastRow).getValues();
         const expected = [this.nameLabelStart, this.idLabelStart, this.logLabelStart];
@@ -372,13 +393,14 @@ class DriveObjectProcessor {
      * For non-empty names, the corresponding entry is ideally one entry, when we have one path; otherwise it's an error.
      * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning.
      *
+     * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
      * @param {string[]} names - array of strings
      * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and a IdInfo as the value; an InputNameInfo with
-     *      multiple folder entries will also have multiple entries in the map; the map is used here to figure out
-     *      which folders are already defined and then as the input for the actual processing
+     *      multiple entries will also have multiple entries in the map; the map is used here to figure out
+     *      which folders or files  are already defined and then as the input for the actual processing
      * @returns {InputNameInfo[]}
      */
-    validateNames(names, idInfosMap) { //ttt0 Add param for type. We want to reject shortcuts, and handle either files or folders
+    validateNames(sheet, names, idInfosMap) { //ttt0 Add param for type. We want to reject shortcuts, and handle either files or folders
         /** @type InputNameInfo[] */
         const res = [];
         for (let i = 0; i < names.length; i += 1) {
@@ -390,25 +412,51 @@ class DriveObjectProcessor {
             const idInfos = [];
             /** @type string[] */
             const errors = [];
-            const driveFolders = DriveApp.getFoldersByName(name);
-            while (driveFolders.hasNext()) {
-                const driveFolder = driveFolders.next();
-                const idInfo = getIdInfo(driveFolder.getId());
-                idInfos.push(idInfo);
-                const existing = idInfosMap.get(idInfo.id);
-                if (existing) {
-                    errors.push(`Folder with the ID ${idInfo.id} already added`);     //ttt0: "Folder", here and around
-                } else {
-                    idInfosMap.set(idInfo.id, idInfo);
+
+            const query = `title = '${name}' and trashed = false`;
+            let pageToken = null;
+
+            do {
+                try {
+                    const items = Drive.Files.list({
+                        q: query,
+                        maxResults: 100,
+                        pageToken,
+                    });
+
+                    if (!items.items || items.items.length === 0) {
+                        break;
+                    }
+                    for (let i = 0; i < items.items.length; i++) {
+                        const item = items.items[i];
+                        if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME)) {
+                            const idInfo = getIdInfo(item.id);
+                            idInfos.push(idInfo);
+                            const existing = idInfosMap.get(idInfo.id);
+                            if (existing) {
+                                errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
+                            } else {
+                                idInfosMap.set(idInfo.id, idInfo);
+                            }
+                        } else if (item.mimeType !== SHORTCUT_MIME) {
+                            // This is not an error, but we'd still like to log something
+                            logS(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
+                        } else {
+                            logS(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
+                        }
+                    }
+                    pageToken = items.nextPageToken;
+                } catch (err) {
+                    errors.push(`Failed to process ${this.objectLabelLc} '${name}'. ${err}`);
+                    //ttt2 improve
                 }
-                // driveFolders.getContinuationToken(...) // Looks like something to get more
-                // entries, but we don't really care about this. "More than 1" is good enough
-            }
+            } while (pageToken);
+
             const cnt = idInfos.length;
             if (!cnt) {
-                errors.push(`No folder found with the name '${name}'`);
+                errors.push(`No ${this.objectLabelLc} found with the name '${name}'`);
             } else if (cnt > 1) {
-                errors.push(`Found ${cnt} folders with the name '${name}'`);  //ttt0 "folders" or files
+                errors.push(`Found ${cnt} ${this.objectLabelLc}s with the name '${name}'`);
             }
             res[i] = {
                 idInfos,
@@ -550,7 +598,8 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     constructor() {
         super(FOLDERS_SHEET_NAME,
             FOLDER_NAME_START,
-            FOLDER_ID_START);
+            FOLDER_ID_START,
+            true);
     }
 
     /**
@@ -756,7 +805,7 @@ class TimeSetter {
                 }
                 pageToken = items.nextPageToken;
             } catch (err) {
-                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. Error: ${err}`; //ttt2 We might want
+                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
                 // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
                 // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
                 // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
