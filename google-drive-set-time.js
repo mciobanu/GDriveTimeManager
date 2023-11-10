@@ -229,7 +229,7 @@ class DriveObjectProcessor {
     }
 
     /**
-     * @return {GoogleAppsScript.Spreadsheet.Sheet}
+     * @returns {GoogleAppsScript.Spreadsheet.Sheet}
      */
     getSheet() {
         //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
@@ -290,7 +290,7 @@ class DriveObjectProcessor {
      * Throws if (some of) the section starts are not found or are not in their proper order.
      *
      * @param {SpreadsheetApp.Sheet} sheet
-     * @return {boolean} true iff the range is valid
+     * @returns {boolean} true iff the range is valid
      */
     applyColorToSheet(sheet) {
         const rangeInfo = this.getRangeInfo(sheet);
@@ -308,7 +308,7 @@ class DriveObjectProcessor {
      * Reads the names and IDs and generates errors, if necessary
      * @param {SpreadsheetApp.Sheet} sheet
      *
-     * @return {NameAndIdValidationInfo|null} A null is returned iff it couldn't find the ranges
+     * @returns {NameAndIdValidationInfo|null} A null is returned iff it couldn't find the ranges
      */
     validateNamesAndIds(sheet) {
         sheet.activate();
@@ -535,7 +535,7 @@ class DriveObjectProcessor {
      * @param {InputNameInfo[]} inputNameInfos
      * @param {InputIdInfo[]} inputIdInfos
      *
-     * @return {boolean} true iff the range is valid
+     * @returns {boolean} true iff the range is valid
      */
     updateUiAfterValidation(sheet, rangeInfo, inputNameInfos, inputIdInfos) {
         this.clearErrors(sheet);
@@ -627,7 +627,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
     /**
      * @param {boolean} showConfirmation
-     * @return {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+     * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
      */
     setTimes(showConfirmation) {
         const sheet = this.getSheet();
@@ -750,7 +750,7 @@ function setupSheets() {
 
 /**
  *
- * @return {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
  */
 function menuSetTimesFolders() {
     return driveFolderProcessor.setTimes(true);
@@ -760,7 +760,7 @@ function menuSetTimesFolders() {
 /**
  * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
  *
- * @return {boolean}
+ * @returns {boolean}
  */
 function setTimesFoldersDebug() {
     return driveFolderProcessor.setTimes(false);
@@ -780,7 +780,7 @@ class TimeSetter {
     /**
      * @param {SpreadsheetApp.Sheet} sheet
      * @param {IdInfo} idInfo
-     * @return {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z' //ttt0 @returns -> @return
+     * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
      */
     processFolder(sheet, idInfo) {
         const existing = this.processed.get(idInfo.id);
@@ -917,7 +917,7 @@ const USER_EMAIL = Session.getActiveUser().getEmail();
  * wasn't introduced by some bug, but comes from Drive. This is the corresponding workaround.
  *
  * @param {GoogleAppsScript.Drive.Schema.File} file
- * @return {(boolean|undefined)}
+ * @returns {(boolean|undefined)}
  */
 function getOwnedByMe(file) {
     if (file.ownedByMe !== undefined) {
@@ -953,7 +953,7 @@ function logS(sheet, message) {
 
 /**
  * @param {string} message
- * @return {boolean} whether the user chose "Yes"
+ * @returns {boolean} whether the user chose "Yes"
  */
 function showConfirmYesNoBox(message) {
     //let choice = Browser.msgBox(message, Browser.Buttons.YES_NO);
