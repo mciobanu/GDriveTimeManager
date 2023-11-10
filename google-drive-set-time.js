@@ -261,9 +261,11 @@ class DriveObjectProcessor {
     }
 
     /**
-     * @return {boolean} true iff the range is valid and the user confirmed it's OK to proceed
+     * Gathers and validates the data. Mainly makes sure that files / folders exist and there are no duplicates. ttt0 handle dates, for files
+     *
+     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
      */
-    menuSetTimes() { //ttt0 rename
+    getProcessedInputData() {
 
         let sheet = this.getSheet();
         if (!sheet) {
@@ -273,7 +275,7 @@ class DriveObjectProcessor {
         sheet.activate();
         const rangeInfo = this.getRangeInfo();
         if (!rangeInfo) {
-            return false;
+            return null;
         }
 
         /** @type {Map<string, IdInfo>} */
@@ -286,24 +288,19 @@ class DriveObjectProcessor {
         // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
         if (!this.updateUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos)) {
             // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
-            return false;
+            return null;
         }
 
         const nameErrors = inputNameInfos.filter((val) => val.errors.length);
         const idErrors = inputIdInfos.filter((val) => val.errors.length);
         if (nameErrors.length || idErrors.length) {
             this.showMessage('Found some errors, which need to be resolved before proceeding with setting the times');
-            return false;
+            return null;
         }
 
+        /** @type {IdInfo[]} */
         const idInfosArr = Array.from(idInfosMap.values());
-        if (!showConfirmYesNoBox(`Really set the dates for ${idInfosArr.length ? 'the specified' : 'all the'}  objects?`)) { // catch or something, so we can run this without a UI
-            return false;
-        }
-        logS(sheet, '------------------ Starting update ------------------');
-        DriveObjectProcessor.setTimes(sheet, idInfosArr);
-        logS(sheet, '------------------ Update finished ------------------');
-        return true;
+        return idInfosArr;
     }
 
     /**
@@ -361,30 +358,6 @@ class DriveObjectProcessor {
             logsBegin: found[2],
             logsEnd: lastRow + 1, // "+1" to account for exclusivity of the end
         };
-    }
-
-
-    /**
-     * @param {SpreadsheetApp.Sheet} sheet
-     * @param {IdInfo[]} idInfos
-     */
-    static setTimes(sheet, idInfos) {   //ttt0: different for files
-        if (!idInfos.length) {
-            const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
-            idInfos.push({
-                id: rootFolder.getId(),
-                path: '',
-                multiplePaths: false,
-                modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
-                ownedByMe: true, // doesn't really matter
-            });
-            logS(sheet, 'Processing all the files, as no folder names or IDs were specified');
-        }
-
-        const timeSetter = new TimeSetter();
-        for (const idInfo of idInfos) {
-            timeSetter.process(sheet, idInfo);
-        }
     }
 
 
@@ -574,6 +547,49 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             FOLDER_NAME_START,
             FOLDER_ID_START);
     }
+
+    /**
+     * @param {boolean} showConfirmation
+     * @return {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+     */
+    setTimes(showConfirmation) {
+        //@param {SpreadsheetApp.Sheet} sheet
+        //@param {IdInfo[]} idInfos
+        let idInfos = this.getProcessedInputData();
+        if (!idInfos) {
+            return false;
+        }
+
+        // if (!idInfos.length) {
+        //     this.showMessage('No files were specified, but at least one is needed');
+        //     return false;
+        // }
+
+        if (showConfirmation && !showConfirmYesNoBox(`Really set the dates for ${idInfos.length ? 'the specified' : 'all the'} folders?`)) {
+            return false;
+        }
+
+        const sheet = this.getSheet();
+        if (!idInfos.length) {
+            const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
+            idInfos.push({
+                id: rootFolder.getId(),
+                path: '',
+                multiplePaths: false,
+                modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
+                ownedByMe: true, // doesn't really matter
+            });
+            logS(sheet, 'Processing all the folders, as no folder names or IDs were specified');
+        }
+
+        logS(sheet, '------------------ Starting update ------------------');
+        const timeSetter = new TimeSetter();
+        for (const idInfo of idInfos) {
+            timeSetter.processFolder(sheet, idInfo);
+        }
+        logS(sheet, '------------------ Update finished ------------------');
+        return true;
+    }
 }
 // const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
 // const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
@@ -622,9 +638,22 @@ function setupSheets() {
 }
 
 
-
+/**
+ *
+ * @return {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ */
 function menuSetTimesFolders() {
-    return driveFolderProcessor.menuSetTimes();
+    return driveFolderProcessor.setTimes(true);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ *
+ * @return {boolean}
+ */
+function setTimesFoldersDebug() {
+    return driveFolderProcessor.setTimes(false);
 }
 
 
@@ -641,9 +670,9 @@ class TimeSetter {
     /**
      * @param {SpreadsheetApp.Sheet} sheet
      * @param {IdInfo} idInfo
-     * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
+     * @return {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z' //ttt0 @returns -> @return
      */
-    process(sheet, idInfo) {     //ttt0 rename processFolder(), add processFile()
+    processFolder(sheet, idInfo) {
         const existing = this.processed.get(idInfo.id);
         if (existing) {
             return existing;
@@ -669,13 +698,15 @@ class TimeSetter {
                     const item = items.items[i];
                     let newTime = res;
                     if (item.mimeType === FOLDER_MIME) {
-                        newTime = this.process(sheet, {
+                        /** @type {IdInfo}} */
+                        const childIdInfo = {
                             id: item.id,
                             modifiedDate: item.modifiedDate,
                             multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
                             path: `${idInfo.path}/${item.title}`,
-                            ownedByMe: item.ownedByMe,
-                        });
+                            ownedByMe: getOwnedByMe(item),
+                        };
+                        newTime = this.processFolder(sheet, childIdInfo);
                     } else {
                         if (item.mimeType !== SHORTCUT_MIME) {
                             newTime = item.modifiedDate;
@@ -766,6 +797,30 @@ function getIdInfo(id) {
     };
 }
 
+
+const USER_EMAIL = Session.getActiveUser().getEmail();
+
+/**
+ * For whatever reason the flag ownedByMe stopped working on 2023.11.10. After reverting the code to the one when
+ * the feature was introduced and really tested, and seeing that it was the same, the conclusion is that the issue
+ * wasn't introduced by some bug, but comes from Drive. This is the corresponding workaround.
+ *
+ * @param {GoogleAppsScript.Drive.Schema.File} file
+ * @return {boolean}
+ */
+function getOwnedByMe(file) {
+    if (file.ownedByMe !== undefined) {
+        return file.ownedByMe;
+    }
+    if (file.owners) {
+        for (const owner of file.owners) {
+            if (owner.emailAddress === USER_EMAIL) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 /**
  * Logs a message in the given sheet. If that fails, logs to the console.
