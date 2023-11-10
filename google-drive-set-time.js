@@ -231,21 +231,32 @@ class DriveObjectProcessor {
     /**
      * @return {GoogleAppsScript.Spreadsheet.Sheet}
      */
-    getSheet() { //ttt0: pass as param in some functions
+    getSheet() {
         //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-        return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+        for (let i = 0; i < 2; i += 1) {
+            const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+            if (sheet) {
+                return sheet;
+            }
+            setupSheets(); //ttt1: Review this
+        }
+        return null; // this should never be reached
     }
 
-    setupSheet() {
-        this.addLabelsIfEmptySheet();
-        this.applyColorToSheet();
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     */
+    setupSheet(sheet) {
+        this.addLabelsIfEmptySheet(sheet);
+        this.applyColorToSheet(sheet);
     }
 
     /**
      * If the sheet is empty, add the section start labels
+     *
+     * @param {SpreadsheetApp.Sheet} sheet
      */
-    addLabelsIfEmptySheet() {
-        const sheet = this.getSheet();
+    addLabelsIfEmptySheet(sheet) {
 
         if (sheet.getLastRow() !== 0) {
             return;
@@ -278,11 +289,11 @@ class DriveObjectProcessor {
      * Sets the background for the first column, so names, IDs, and logs each have their own color.
      * Throws if (some of) the section starts are not found or are not in their proper order.
      *
+     * @param {SpreadsheetApp.Sheet} sheet
      * @return {boolean} true iff the range is valid
      */
-    applyColorToSheet() {
-        const sheet = this.getSheet();
-        const rangeInfo = this.getRangeInfo();
+    applyColorToSheet(sheet) {
+        const rangeInfo = this.getRangeInfo(sheet);
         if (!rangeInfo) {
             return false;
         }
@@ -295,16 +306,13 @@ class DriveObjectProcessor {
 
     /**
      * Reads the names and IDs and generates errors, if necessary
+     * @param {SpreadsheetApp.Sheet} sheet
+     *
      * @return {NameAndIdValidationInfo|null} A null is returned iff it couldn't find the ranges
      */
-    validateNamesAndIds() {
-        let sheet = this.getSheet();
-        if (!sheet) {
-            setupSheets();
-            this.getSheet();
-        }
+    validateNamesAndIds(sheet) {
         sheet.activate();
-        const rangeInfo = this.getRangeInfo();
+        const rangeInfo = this.getRangeInfo(sheet);
         if (!rangeInfo) {
             return null;
         }
@@ -354,10 +362,10 @@ class DriveObjectProcessor {
      *
      * The ends are exclusive, and, for now, coincide with the beginning of the next section. This might change, though.
      *
+     * @param {SpreadsheetApp.Sheet} sheet
      * @returns {(RangeInfo|null)} null if the range is invalid
      */
-    getRangeInfo() {
-        const sheet = this.getSheet(); //ttt0: pass a param, here and elsewhere
+    getRangeInfo(sheet) {
         const lastRow = sheet.getLastRow();
         const rows = sheet.getRange(1, 1, lastRow).getValues();
         const expected = [this.nameLabelStart, this.idLabelStart, this.logLabelStart];
@@ -373,7 +381,7 @@ class DriveObjectProcessor {
             }
         }
         if (expectedIndex !== expected.length) {
-            this.showMessage(this.rangeNotFoundErr);
+            this.showMessage(sheet, this.rangeNotFoundErr);
             return null;
         }
         return {
@@ -400,7 +408,7 @@ class DriveObjectProcessor {
      *      which folders or files  are already defined and then as the input for the actual processing
      * @returns {InputNameInfo[]}
      */
-    validateNames(sheet, names, idInfosMap) { //ttt0 Add param for type. We want to reject shortcuts, and handle either files or folders
+    validateNames(sheet, names, idInfosMap) {
         /** @type InputNameInfo[] */
         const res = [];
         for (let i = 0; i < names.length; i += 1) {
@@ -522,18 +530,18 @@ class DriveObjectProcessor {
 
 
     /**
+     * @param {SpreadsheetApp.Sheet} sheet
      * @param {RangeInfo} rangeInfo
      * @param {InputNameInfo[]} inputNameInfos
      * @param {InputIdInfo[]} inputIdInfos
      *
      * @return {boolean} true iff the range is valid
      */
-    updateUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos) {
-        this.clearErrors();
-        if (!this.applyColorToSheet()) {
+    updateUiAfterValidation(sheet, rangeInfo, inputNameInfos, inputIdInfos) {
+        this.clearErrors(sheet);
+        if (!this.applyColorToSheet(sheet)) {
             return false;
         }
-        const sheet = this.getSheet();
 
         for (let i = 0; i < inputNameInfos.length; i += 1) {
             /** @type InputNameInfo */
@@ -564,7 +572,7 @@ class DriveObjectProcessor {
             let lines = [];
             const idInfo = inputIdInfo.idInfo;
             if (idInfo) {
-                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''}  [${idInfo.id}]`); //ttt0 duplicate code "(and others)"
+                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''}  [${idInfo.id}]`); //ttt1 duplicate code "(and others)"
             }
             const cellRange = sheet.getRange(rangeInfo.idsBegin + 1 + i, 2);
             if (inputIdInfo.errors.length) {
@@ -581,9 +589,10 @@ class DriveObjectProcessor {
 
     /**
      * Erases the second column, which is supposed to be used for errors.
+     *
+     * @param {SpreadsheetApp.Sheet} sheet
      */
-    clearErrors() {
-        const sheet = this.getSheet();
+    clearErrors(sheet) {
         sheet.getRange(1, 2, sheet.getLastRow()).clearContent();
     }
 
@@ -592,13 +601,14 @@ class DriveObjectProcessor {
      * Show a popup message. If that fails, logs to the log section in
      * the corresponding sheet. If that also fails, logs to the console.
      *
+     * @param {SpreadsheetApp.Sheet} sheet
      * @param {string} message
      */
-    showMessage(message) {
+    showMessage(sheet, message) {
         try {
             SpreadsheetApp.getUi().alert(message);
         } catch {
-            logS(this.getSheet(), message);
+            logS(sheet, message);
         }
     }
 }
@@ -620,9 +630,11 @@ class DriveFolderProcessor extends DriveObjectProcessor {
      * @return {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
      */
     setTimes(showConfirmation) {
+        const sheet = this.getSheet();
+
         //@param {SpreadsheetApp.Sheet} sheet
         //@param {IdInfo[]} idInfos
-        let idInfos = this.getProcessedInputData();
+        let idInfos = this.getProcessedInputData(sheet);
         if (!idInfos) {
             return false;
         }
@@ -636,7 +648,6 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             return false;
         }
 
-        const sheet = this.getSheet();
         if (!idInfos.length) {
             const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
             idInfos.push({
@@ -661,24 +672,25 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     /**
      * Gathers and validates the data. Mainly makes sure that files / folders exist and there are no duplicates.
      *
+     * @param {SpreadsheetApp.Sheet} sheet
      * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
      */
-    getProcessedInputData() {
+    getProcessedInputData(sheet) {
 
-        const vld = this.validateNamesAndIds();
+        const vld = this.validateNamesAndIds(sheet);
         if (!vld) {
             return null;
         }
 
         //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
         // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
-        if (!this.updateUiAfterValidation(vld.rangeInfo, vld.inputNameInfos, vld.inputIdInfos)) {
+        if (!this.updateUiAfterValidation(sheet, vld.rangeInfo, vld.inputNameInfos, vld.inputIdInfos)) {
             // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
             return null;
         }
 
         if (vld.nameOrIdErrors) {
-            this.showMessage('Found some errors, which need to be resolved before proceeding with setting the times');
+            this.showMessage(sheet, 'Found some errors, which need to be resolved before proceeding with setting the times');
             return null;
         }
 
@@ -728,10 +740,11 @@ function setupSheets() {
         sheet.setName(FILES_SHEET_NAME);
     }*/
 
-    driveFolderProcessor.getSheet().activate(); //ttt3 This doesn't work when running the script in the editor, but
+    const folderSheet = driveFolderProcessor.getSheet();
+    folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
     // works when starting from the Sheet menu. At least it doesn't crash
 
-    driveFolderProcessor.setupSheet();
+    driveFolderProcessor.setupSheet(folderSheet);
 }
 
 
