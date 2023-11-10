@@ -100,6 +100,7 @@ function tst02() {
 
 /**
  * Information about a folder or file ID (which comes from user input)
+ *
  * @typedef {Object} InputIdInfo
  * @property {IdInfo} idInfo
  * @property {string[]} errors
@@ -153,6 +154,16 @@ InputIdInfo:
     ]
 }
 */
+
+/**
+ * @typedef {Object} NameAndIdValidationInfo
+ * @property {RangeInfo} rangeInfo
+ * @property {InputNameInfo[]} inputNameInfos
+ * @property {InputIdInfo[]} inputIdInfos
+ * @property {Map<string, IdInfo>} idInfosMap
+ * @property {boolean} nameOrIdErrors
+*/
+
 
 
 // noinspection JSUnusedGlobalSymbols
@@ -260,13 +271,12 @@ class DriveObjectProcessor {
         return true;
     }
 
-    /**
-     * Gathers and validates the data. Mainly makes sure that files / folders exist and there are no duplicates. ttt0 handle dates, for files
-     *
-     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
-     */
-    getProcessedInputData() {
 
+    /**
+     * Reads the names and IDs and generates errors, if necessary
+     * @return {NameAndIdValidationInfo|null} A null is returned iff it couldn't find the ranges
+     */
+    validateNamesAndIds() {
         let sheet = this.getSheet();
         if (!sheet) {
             setupSheets();
@@ -284,24 +294,19 @@ class DriveObjectProcessor {
         const inputNameInfos = this.validateNames(names, idInfosMap);
         const inputIds = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
         const inputIdInfos = this.validateIds(inputIds, idInfosMap);
-        //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
-        // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
-        if (!this.updateUiAfterValidation(rangeInfo, inputNameInfos, inputIdInfos)) {
-            // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
-            return null;
-        }
-
         const nameErrors = inputNameInfos.filter((val) => val.errors.length);
         const idErrors = inputIdInfos.filter((val) => val.errors.length);
-        if (nameErrors.length || idErrors.length) {
-            this.showMessage('Found some errors, which need to be resolved before proceeding with setting the times');
-            return null;
-        }
+        const nameOrIdErrors = nameErrors.length > 0 || idErrors.length > 0;
 
-        /** @type {IdInfo[]} */
-        const idInfosArr = Array.from(idInfosMap.values());
-        return idInfosArr;
+        return {
+            rangeInfo,
+            inputNameInfos,
+            inputIdInfos,
+            nameOrIdErrors,
+            idInfosMap,
+        };
     }
+
 
     /**
      * @param {SpreadsheetApp.Sheet} sheet
@@ -590,6 +595,36 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         logS(sheet, '------------------ Update finished ------------------');
         return true;
     }
+
+    /**
+     * Gathers and validates the data. Mainly makes sure that files / folders exist and there are no duplicates.
+     *
+     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
+     */
+    getProcessedInputData() {
+
+        const vld = this.validateNamesAndIds();
+        if (!vld) {
+            return null;
+        }
+
+        //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
+        // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
+        if (!this.updateUiAfterValidation(vld.rangeInfo, vld.inputNameInfos, vld.inputIdInfos)) {
+            // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
+            return null;
+        }
+
+        if (vld.nameOrIdErrors) {
+            this.showMessage('Found some errors, which need to be resolved before proceeding with setting the times');
+            return null;
+        }
+
+        /** @type {IdInfo[]} */
+        const idInfosArr = Array.from(vld.idInfosMap.values());
+        return idInfosArr;
+    }
+
 }
 // const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
 // const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
@@ -704,7 +739,8 @@ class TimeSetter {
                             modifiedDate: item.modifiedDate,
                             multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
                             path: `${idInfo.path}/${item.title}`,
-                            ownedByMe: getOwnedByMe(item),
+                            ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
+                            // may return undefined, while the field is just boolean
                         };
                         newTime = this.processFolder(sheet, childIdInfo);
                     } else {
@@ -806,7 +842,7 @@ const USER_EMAIL = Session.getActiveUser().getEmail();
  * wasn't introduced by some bug, but comes from Drive. This is the corresponding workaround.
  *
  * @param {GoogleAppsScript.Drive.Schema.File} file
- * @return {boolean}
+ * @return {(boolean|undefined)}
  */
 function getOwnedByMe(file) {
     if (file.ownedByMe !== undefined) {
@@ -818,8 +854,9 @@ function getOwnedByMe(file) {
                 return true;
             }
         }
+        return false;
     }
-    return false;
+    return undefined;
 }
 
 /**
