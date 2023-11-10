@@ -314,7 +314,7 @@ class DriveObjectProcessor {
         const names = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
         const inputNameInfos = this.validateNames(sheet, names, idInfosMap);
         const inputIds = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
-        const inputIdInfos = this.validateIds(inputIds, idInfosMap);
+        const inputIdInfos = this.validateIds(sheet, inputIds, idInfosMap);
         const nameErrors = inputNameInfos.filter((val) => val.errors.length);
         const idErrors = inputIdInfos.filter((val) => val.errors.length);
         const nameOrIdErrors = nameErrors.length > 0 || idErrors.length > 0;
@@ -428,9 +428,11 @@ class DriveObjectProcessor {
                         break;
                     }
                     for (let i = 0; i < items.items.length; i++) {
+                        /** @type IdInfo */
+                        let idInfo;
                         const item = items.items[i];
                         if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME)) {
-                            const idInfo = getIdInfo(item.id);
+                            idInfo = getIdInfo(item.id);
                             idInfos.push(idInfo);
                             const existing = idInfosMap.get(idInfo.id);
                             if (existing) {
@@ -471,13 +473,14 @@ class DriveObjectProcessor {
      * Returns an array the size of up to the "names" section without the title with the type InputIdInfo
      * For empty IDs, the corresponding entry is unedfined (or missing, at the end of the array).
      *
+     * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
      * @param {string[]} ids
      * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and an IdInfo as the value; an InputNameInfo with
-     *      multiple folder entries will also have multiple entries in the map; the map is used here to figure out
-     *      which folders are already defined and then as the input for the actual processing
+     *      multiple entries will also have multiple entries in the map; the map is used here to figure out
+     *      which folders or files are already defined and then as the input for the actual processing
      * @returns {InputIdInfo[]}
      */
-    validateIds(ids, idInfosMap) { //ttt0 Add param for type. We want to reject shortcuts, and handle either files or folders
+    validateIds(sheet, ids, idInfosMap) {
         /** @type InputIdInfo[] */
         const res = [];
         for (let i = 0; i < ids.length; i += 1) {
@@ -487,17 +490,27 @@ class DriveObjectProcessor {
             }
             /** @type string[] */
             const errors = [];
+            /** @type IdInfo */
             let idInfo;
             try {
-                idInfo = getIdInfo(id);
-                const existing = idInfosMap.get(idInfo.id);
-                if (existing) {
-                    errors.push(`Folder with the ID ${idInfo.id} already added`);
+                const item = Drive.Files.get(id);
+
+                if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME)) {  //ttt1: duplicate code with names
+                    idInfo = getIdInfo(item.id);
+                    const existing = idInfosMap.get(idInfo.id);
+                    if (existing) {
+                        errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
+                    } else {
+                        idInfosMap.set(idInfo.id, idInfo);
+                    }
+                } else if (item.mimeType !== SHORTCUT_MIME) {
+                    // This is not an error, but we'd still like to log something
+                    logS(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
                 } else {
-                    idInfosMap.set(idInfo.id, idInfo);
+                    logS(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
                 }
             } catch (err) {
-                errors.push(`Folder with ID ${id} not found`);           //ttt0: "Folder", here and around
+                errors.push(`${this.objectLabel} with ID ${id} not found`);
             }
             res[i] = {
                 idInfo,
@@ -858,8 +871,8 @@ function updateModifiedTime(id, itemTime) {
  * @returns {IdInfo}
  */
 function getIdInfo(id) {
-    const objectInfo = Drive.Files.get(id)
-    let parents = objectInfo.parents;
+    const item = Drive.Files.get(id)
+    let parents = item.parents;
     let parentCnt = parents.length;
     if (parentCnt === 0) {
         // It's a (usually "the") root
@@ -867,18 +880,18 @@ function getIdInfo(id) {
             id,
             path: '',
             multiplePaths: false,
-            modifiedDate: objectInfo.modifiedDate,
-            ownedByMe: objectInfo.ownedByMe, // doesn't matter
+            modifiedDate: item.modifiedDate,
+            ownedByMe: item.ownedByMe, // doesn't matter
         };
     }
     let parent = parents[0];
     let parentInfo = getIdInfo(parent.id);
     return {
         id,
-        path: `${parentInfo.path}/${objectInfo.title}`,
+        path: `${parentInfo.path}/${item.title}`,
         multiplePaths: parentInfo.multiplePaths || (parentCnt > 1),
-        modifiedDate: objectInfo.modifiedDate,
-        ownedByMe: objectInfo.ownedByMe,
+        modifiedDate: item.modifiedDate,
+        ownedByMe: item.ownedByMe,
     };
 }
 
