@@ -95,6 +95,7 @@ function tst02() {
  * Drive info about a particular ID. If it has multiple parents, only one path through one of them is included
  *
  * @typedef {Object} IdInfo
+ *
  * @property {string} id
  * @property {string} path
  * @property {boolean} multiplePaths
@@ -103,33 +104,28 @@ function tst02() {
  */
 
 /**
- * Information about a folder or file name (which comes from user input)
+ * Information about a folder or file (based on either name or ID, with an optional date; all come from user input).
+ * Corresponds to a row in the spreadsheet (one of name, id, name+date, id+date).
  *
- * @typedef {Object} InputNameInfo
- * @property {IdInfo[]} idInfos
+ * @typedef {Object} InputInfo
+ *
+ * @property {IdInfo[]} idInfos for IDs this array has at most 1 element
  * @property {string[]} errors
+ * @property {string} [date]
  */
 
-/**
- * Information about a folder or file ID (which comes from user input)
- *
- * @typedef {Object} InputIdInfo
- * @property {IdInfo} idInfo
- * @property {string[]} errors
- */
 
 /*
 
 IdInfo: {
     id: "ke8436",
-    //name: "name1",
     path: "/kf84/asf",
     multiplePaths: true, // optional, for when there are multiple parents
-    //cnt: 3, // just for errors, to be able to tell how many times a folder has been added already //ttt2 See if we want this
     modifiedDate: "2000-01-01T10:00:00.000Z",
+    ownedByMe: true,
 }
 
-InputNameInfo:
+InputInfo:
 {
     idInfos: [
         { // IdInfo
@@ -149,34 +145,20 @@ InputNameInfo:
     ],
     errors: [
         "Found multiple folders with name 'name1'",
-    ]
-}
-
-InputIdInfo:
-{
-    idInfo: { // IdInfo
-        id: "hd73hb",
-        path: "/de/fd/gth",
-        multiplePaths: false,
-        modifiedDate: "2000-01-01T10:00:00.000Z",
-        ownedByMe: true,
-    },
-    errors: [
-        "ID 'hd73hb' already found",
-    ]
+    ],
+    date: "21/4/2015 10:11",
 }
 */
 
 /**
- * @typedef {Object} NameAndIdValidationInfo
+ * @typedef {Object} NameAndIdValidationInfo  //ttt0: Rename "Folder"
  *
  * @property {RangeInfo} rangeInfo
- * @property {InputNameInfo[]} inputNameInfos
- * @property {InputIdInfo[]} inputIdInfos
+ * @property {InputInfo[]} inputNameInfos
+ * @property {InputInfo[]} inputIdInfos
  * @property {Map<string, IdInfo>} idInfosMap
- * @property {boolean} nameOrIdErrors
+ * @property {boolean} hasErrors
 */
-
 
 
 // noinspection JSUnusedGlobalSymbols
@@ -325,13 +307,13 @@ class DriveObjectProcessor {
         const inputIdInfos = this.validateIds(sheet, inputIds, idInfosMap);
         const nameErrors = inputNameInfos.filter((val) => val.errors.length);
         const idErrors = inputIdInfos.filter((val) => val.errors.length);
-        const nameOrIdErrors = nameErrors.length > 0 || idErrors.length > 0;
+        const hasErrors = nameErrors.length > 0 || idErrors.length > 0;
 
         return {
             rangeInfo,
             inputNameInfos,
             inputIdInfos,
-            nameOrIdErrors,
+            hasErrors,
             idInfosMap,
         };
     }
@@ -396,20 +378,20 @@ class DriveObjectProcessor {
 
 
     /**
-     * Returns an array the size of up to the "names" section without the title with the type InputNameInfo.
+     * Returns an array the size of up to the "names" section without the title with the type InputInfo.
      * For empty names, the corresponding entry is undefined (or missing, at the end of the array).
      * For non-empty names, the corresponding entry is ideally one entry, when we have one path; otherwise it's an error.
      * Not clear how to deal with multipaths. We should probably cache them, and maybe generate a warning.
      *
      * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
      * @param {string[]} names - array of strings
-     * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and a IdInfo as the value; an InputNameInfo with
+     * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and a IdInfo as the value; an InputInfo with
      *      multiple entries will also have multiple entries in the map; the map is used here to figure out
      *      which folders or files  are already defined and then as the input for the actual processing
-     * @returns {InputNameInfo[]}
+     * @returns {InputInfo[]}
      */
     validateNames(sheet, names, idInfosMap) {
-        /** @type InputNameInfo[] */
+        /** @type InputInfo[] */
         const res = [];
         for (let i = 0; i < names.length; i += 1) {
             const name = names[i];
@@ -478,18 +460,18 @@ class DriveObjectProcessor {
 
 
     /**
-     * Returns an array the size of up to the "names" section without the title with the type InputIdInfo
+     * Returns an array the size of up to the "names" section without the title with the type InputInfo
      * For empty IDs, the corresponding entry is unedfined (or missing, at the end of the array).
      *
      * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
      * @param {string[]} ids
-     * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and an IdInfo as the value; an InputNameInfo with
+     * @param {Map<string, IdInfo>} idInfosMap - map with ID as key and an IdInfo as the value; an InputInfo with
      *      multiple entries will also have multiple entries in the map; the map is used here to figure out
      *      which folders or files are already defined and then as the input for the actual processing
-     * @returns {InputIdInfo[]}
+     * @returns {InputInfo[]}
      */
     validateIds(sheet, ids, idInfosMap) {
-        /** @type InputIdInfo[] */
+        /** @type InputInfo[] */
         const res = [];
         for (let i = 0; i < ids.length; i += 1) {
             const id = ids[i];
@@ -520,8 +502,13 @@ class DriveObjectProcessor {
             } catch (err) {
                 errors.push(`${this.objectLabel} with ID ${id} not found`);
             }
+            /** @type IdInfo[] */
+            const idInfos = [];
+            if (idInfo) {
+                idInfos.push(idInfo)
+            }
             res[i] = {
-                idInfo,
+                idInfos,
                 errors,
             };
         }
@@ -532,8 +519,8 @@ class DriveObjectProcessor {
     /**
      * @param {SpreadsheetApp.Sheet} sheet
      * @param {RangeInfo} rangeInfo
-     * @param {InputNameInfo[]} inputNameInfos
-     * @param {InputIdInfo[]} inputIdInfos
+     * @param {InputInfo[]} inputNameInfos
+     * @param {InputInfo[]} inputIdInfos
      *
      * @returns {boolean} true iff the range is valid
      */
@@ -544,7 +531,7 @@ class DriveObjectProcessor {
         }
 
         for (let i = 0; i < inputNameInfos.length; i += 1) {
-            /** @type InputNameInfo */
+            /** @type InputInfo */
             const inputNameInfo = inputNameInfos[i];
             if (!inputNameInfo) {
                 continue;
@@ -563,14 +550,15 @@ class DriveObjectProcessor {
         }
 
         for (let i = 0; i < inputIdInfos.length; i += 1) {
-            /** @type InputIdInfo */
+            /** @type InputInfo */
             const inputIdInfo = inputIdInfos[i];
             if (!inputIdInfo) {
                 continue;
             }
             /** @type string[] */
             let lines = [];
-            const idInfo = inputIdInfo.idInfo;
+            const idInfo = inputIdInfo.idInfos[0]; //!!! It's OK if the array is empty, as [0] will return
+            // undefined. (For IDs, we have an entry if the ID is correct and none if there's an error.)
             if (idInfo) {
                 lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''}  [${idInfo.id}]`); //ttt1 duplicate code "(and others)"
             }
@@ -689,7 +677,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             return null;
         }
 
-        if (vld.nameOrIdErrors) {
+        if (vld.hasErrors) {
             this.showMessage(sheet, 'Found some errors, which need to be resolved before proceeding with setting the times');
             return null;
         }
