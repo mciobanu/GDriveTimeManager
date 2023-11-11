@@ -173,8 +173,7 @@ function onOpen() {
         .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
         .addItem(`Validate file data`, 'menuValidateFiles')
         .addItem(`Set time for specified files`, 'menuSetTimesFiles')
-        //.addItem(`List content of specified  folders`, 'menuListFolders')
-        //.addItem(`Change time for file ${SOURCE_LIST}`, 'menuSetTimesFile') //ttt0 implement
+        //.addItem(`List content of specified  folders`, 'menuListFolders')   //ttt0 implement
         .addToUi();
 
     setupSheets();
@@ -368,7 +367,7 @@ class DriveObjectProcessor {
                 }
                 try {
                     const date = new Date(dateStr);
-                    inputInfo.date = formatShortDate(date);
+                    inputInfo.date = date.toISOString();
                 } catch {
                     inputInfo.errors.push('Error parsing date field');
                 }
@@ -619,7 +618,7 @@ class DriveObjectProcessor {
                 lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''} [${idInfo.id}]`);
             }
             if (inputInfo.date) {
-                lines.push(inputInfo.date);
+                lines.push(isoDateToShort(inputInfo.date));
             }
             const cellRange = sheet.getRange(firstRow + 1 + i, this.outputColumn);
             if (inputInfo.errors.length) {
@@ -632,7 +631,7 @@ class DriveObjectProcessor {
 
 
     /**
-     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
+     * Updates the output column to reflect folders / IDs / dates / errors
      */
     validateInput() {
         const sheet = this.getSheet();
@@ -645,7 +644,7 @@ class DriveObjectProcessor {
      * exist and there are no duplicates. Also, for files, it checks that the times match and can be parsed. //ttt1 coupling
      *
      * @param {SpreadsheetApp.Sheet} sheet
-     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
+     * @returns {(InputInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
      */
     getProcessedInputData(sheet) {
 
@@ -666,9 +665,11 @@ class DriveObjectProcessor {
             return null;
         }
 
-        /** @type {IdInfo[]} */
-        const idInfosArr = Array.from(vld.idInfosMap.values());
-        return idInfosArr;
+        /** @type {InputInfo[]} */
+        const tmp = [...vld.inputNameInfos];
+        tmp.push(...vld.inputIdInfos);
+        const res = tmp.filter((x) => !!x);
+        return res;
     }
 
 
@@ -734,31 +735,34 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     setTimes(showConfirmation) {
         const sheet = this.getSheet();
 
-        let idInfos = this.getProcessedInputData(sheet);
-        if (!idInfos) {
+        let inputInfos = this.getProcessedInputData(sheet);
+        if (!inputInfos) {
             return false;
         }
 
-        if (showConfirmation && !showConfirmYesNoBox(`Really set the dates for ${idInfos.length ? 'the specified' : 'all the'} folders?`)) {
+        if (showConfirmation && !showConfirmYesNoBox(`Really set the dates for ${inputInfos.length ? 'the specified' : 'all the'} folders?`)) {
             return false;
         }
 
-        if (!idInfos.length) {
+        if (!inputInfos.length) {
             const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
-            idInfos.push({
-                id: rootFolder.getId(),
-                path: '',
-                multiplePaths: false,
-                modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
-                ownedByMe: true, // doesn't really matter
+            inputInfos.push({
+                idInfos: [{
+                    id: rootFolder.getId(),
+                    path: '',
+                    multiplePaths: false,
+                    modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
+                    ownedByMe: true, // doesn't really matter
+                }],
+                errors: [],
             });
             logS(sheet, 'Processing all the folders, as no folder names or IDs were specified');
         }
 
         logS(sheet, '------------------ Starting update ------------------');
         const timeSetter = new TimeSetter();
-        for (const idInfo of idInfos) {
-            timeSetter.processFolder(sheet, idInfo);
+        for (const inputInfo of inputInfos) {
+            timeSetter.processFolder(sheet, inputInfo.idInfos[0]);
         }
         logS(sheet, '------------------ Update finished ------------------');
         return true;
@@ -785,12 +789,12 @@ class DriveFileProcessor extends DriveObjectProcessor {
     setTimes(showConfirmation) {
         const sheet = this.getSheet();
 
-        let idInfos = this.getProcessedInputData(sheet);
-        if (!idInfos) {
+        let inputInfos = this.getProcessedInputData(sheet);
+        if (!inputInfos) {
             return false;
         }
 
-        if (!idInfos.length) {
+        if (!inputInfos.length) {
             this.showMessage(sheet, 'No files were specified, but at least one is needed');
             return false;
         }
@@ -801,8 +805,8 @@ class DriveFileProcessor extends DriveObjectProcessor {
 
         logS(sheet, '------------------ Starting update ------------------');
         const timeSetter = new TimeSetter();
-        for (const idInfo of idInfos) {
-            timeSetter.processFile(sheet, idInfo);
+        for (const inputInfo of inputInfos) {
+            timeSetter.processFile(sheet, inputInfo);
         }
         logS(sheet, '------------------ Update finished ------------------');
         return true;
@@ -870,6 +874,16 @@ function menuSetTimesFiles() {
  */
 function setTimesFoldersDebug() {
     return driveFolderProcessor.setTimes(false);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ *
+ * @returns {boolean}
+ */
+function setTimesFilesDebug() {
+    return driveFileProcessor.setTimes(false);
 }
 
 
@@ -971,11 +985,13 @@ class TimeSetter {
 
     /**
      * @param {SpreadsheetApp.Sheet} sheet
-     * @param {IdInfo} idInfo
+     * @param {InputInfo} inputInfo
      * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
      */
-    processFile(sheet, idInfo) {
-        //ttt0:
+    processFile(sheet, inputInfo) {
+        const idInfo = inputInfo.idInfos[0];
+        logS(sheet, `Setting time to ${inputInfo.date} for ${idInfo.path}`);
+        updateModifiedTime(idInfo.id, inputInfo.date);
     }
 }
 
@@ -1094,13 +1110,22 @@ function formatLogDate(date) {
     return `${main}.${millis}`;
 }
 
+// /**
+//  * Formats a date using YYYY-MM-DD HH:mm
+//  * @param {Date} date
+//  * @returns {string}
+//  */
+// function formatShortDate(date) {
+//     return `${date.toISOString().replace('T', ' ').replace(/\..*/, '')} UTC`;
+// }
+
 /**
- * Formats a date using HH:mm:ss.SSS (SSS is for milliseconds)
- * @param {Date} date
+ * Converts an ISO date representation to YYYY-MM-DD HH:mm
+ * @param {string} isoDate
  * @returns {string}
  */
-function formatShortDate(date) {
-    return `${date.toISOString().replace('T', ' ').replace(/\..*/, '')} UTC`;
+function isoDateToShort(isoDate) {
+    return `${isoDate.replace('T', ' ').replace(/\..*/, '')} UTC`;
 }
 
 //ttt1 Perhaps have a "dry-run"
