@@ -231,6 +231,7 @@ class DriveObjectProcessor {
         if (!sheet) {
             sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
             sheet.setName(this.sheetName);
+            this.setupSheet();
         }
         return sheet;
     }
@@ -753,6 +754,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
                 if (sheets[0].getLastRow() === 0) {
                     // There's no data. Just rename // ttt2 There might be formatting
                     sheets[0].setName(this.sheetName);
+                    this.setupSheet();
                 }
             }
         }
@@ -1145,6 +1147,3 @@ function isoDateToShort(isoDate) {
 }
 
 //ttt1 Perhaps have a "dry-run"
-
-//ttt0: Rename sheet, go to menu. Starts creating and then there's an error. It should exit immediately, or ask for
-// confirmation to create, and, if so, work OK
