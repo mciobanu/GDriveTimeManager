@@ -22,6 +22,9 @@ THE SOFTWARE.
 
  */
 
+const PLAIN_TEXT_FMT = '@STRING@';
+const LIST_DATETIME_FMT = 'yyyy-MM-dd hh:mm';
+
 const DEFAULT_SOURCE_HEIGHT = 5;
 
 const FOLDERS_SHEET_NAME = 'Folders';
@@ -175,9 +178,10 @@ function onOpen() {
     ui.createMenu('Modification times')
         .addItem(`Validate folder data`, 'menuValidateFolders')
         .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
+        .addItem(`List content of specified  folders`, 'menuListFolders')
+        .addSeparator()
         .addItem(`Validate file data`, 'menuValidateFiles')
         .addItem(`Set time for specified files`, 'menuSetTimesFiles')
-        //.addItem(`List content of specified  folders`, 'menuListFolders')   //ttt0 implement
         .addToUi();
 
     setupSheets();
@@ -326,7 +330,6 @@ class DriveObjectProcessor {
         sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
             .setBackground(LOG_BG);
 
-        const PLAIN_TEXT_FMT = '@STRING@';
         if (this.dateColumn) {
             sheet.getRange(rangeInfo.namesBegin, this.dateColumn, rangeInfo.idsEnd - rangeInfo.namesBegin, this.dateColumn)
                 .setNumberFormat(PLAIN_TEXT_FMT);
@@ -790,13 +793,173 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     setTimes(showConfirmation) {
         const sheet = this.getSheet();
 
-        let inputInfos = this.getProcessedInputData(sheet);
+        const inputInfos = this.getInputInfos(sheet, (size) => {
+            if (!showConfirmation) {
+                return '';
+            }
+            return `Really set the dates for ${size ? 'the specified' : 'all the'} folders?`;
+        });
         if (!inputInfos) {
             return false;
         }
 
-        if (showConfirmation && !showConfirmYesNoBox(`Really set the dates for ${inputInfos.length ? 'the specified' : 'all the'} folders?`)) {
-            return false;
+        this.log(sheet, '------------------ Starting update ------------------');
+        const timeSetter = new TimeSetter();
+        for (const inputInfo of inputInfos) {
+            timeSetter.processFolder(inputInfo.idInfos[0], (message => this.log(sheet, message)));
+        }
+        this.log(sheet, '------------------ Update finished ------------------');
+        return true;
+    }
+
+
+    /**
+     * @param {boolean} showConfirmation
+     */
+    listFiles(showConfirmation) {
+        const sheet = this.getSheet();
+
+        const inputInfos = this.getInputInfos(sheet, (size) => {
+            if (!showConfirmation) {
+                return '';
+            }
+            return `List the files in ${size ? 'the specified' : 'all the'} folders?`;
+        });
+        if (!inputInfos) {
+            return;
+        }
+
+        this.log(sheet, '------------------ Starting listing ------------------');
+        /**
+         * @typedef ListInfo
+         *
+         * @property {string} name
+         * @property {string} id
+         * @property {string} path
+         * @property {string} time
+         * @property {string} size
+         * @property {string} mime
+         */
+
+        // /** @type {Map<string, ListInfo>} */
+        // const filesMap = new Map();  //ttt1: Not sure how to approach the issue of multiple paths to the same file
+        /** @type {ListInfo[]} */
+        const files= [];
+        /** @type {Set<string>} */
+        const exploredDirs = new Set();
+
+        for (const inputInfo of inputInfos) {
+            this.listDir(sheet, inputInfo.idInfos[0], files, exploredDirs); // When there are no errors, there is exactly 1 ID per entry
+        }
+        this.log(sheet, '------------------------------------');
+        files.sort((l1, l2) => (l1.path + l1.name).localeCompare(l2.path + l2.name));
+        for (const file of files) {
+            const row = sheet.getLastRow() + 1;
+            const arr = [file.path, file.name, file.time, file.size, file.id, file.mime];
+            for (let i = 0; i < arr.length; i += 1) {
+                const range = sheet.getRange(row, i + 1);
+                let val = arr[i];
+                if (i === 2) {
+                    val = new Date(arr[i]);  //ttt1: See what to do about this. It's supposed to convert to
+                    // a sensible string, based on the spreadsheet and the browser settings, but it shows the date and
+                    // no time
+                }
+                range
+                    .setValue(val)
+                    .setBackground(LOG_BG);
+                if (i === 2) {
+                    range.setNumberFormat(LIST_DATETIME_FMT);
+                } else if (i !== 3) { //ttt2: hardcoded
+                    range.setNumberFormat(PLAIN_TEXT_FMT);
+                }
+            }
+        }
+        this.log(sheet, '------------------ Listing finished ------------------');
+    }
+
+
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {IdInfo} idInfo
+     * @param {ListInfo[]} files
+     * @param {Set<string>} exploredDirs
+     */
+    listDir(sheet, idInfo, files, exploredDirs) {
+        if (exploredDirs.has(idInfo.id)) {
+            this.log(sheet, `Already processed ${idInfo.path} [${idInfo.id}]`)
+            return;
+        }
+        exploredDirs.add(idInfo.id)
+
+        const query = `"${idInfo.id}" in parents and trashed = false`;
+        let pageToken = null;
+
+        do {
+            try {
+                const items = Drive.Files.list({  //ttt0: duplicate code for going through children and do something
+                    q: query,
+                    maxResults: 100,
+                    pageToken,
+                });
+
+                if (!items.items || items.items.length === 0) {
+                    break;
+                }
+                for (let i = 0; i < items.items.length; i++) {
+                    const item = items.items[i];
+                    if (item.mimeType === FOLDER_MIME) {
+                        /** @type {IdInfo}} */
+                        const childIdInfo = {
+                            id: item.id,
+                            modifiedDate: item.modifiedDate,
+                            multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
+                            path: `${idInfo.path}/${item.title}`,
+                            ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
+                            // may return undefined, while the field is just boolean
+                        };
+                        this.listDir(sheet, childIdInfo, files, exploredDirs);
+                    } else {
+                        if (item.mimeType !== SHORTCUT_MIME) {
+                            files.push({
+                                id: item.id,
+                                name: item.title,
+                                path: idInfo.path,
+                                size: item.fileSize,  //ttt2: see why is this a string
+                                time: item.modifiedDate,
+                                mime: item.mimeType,
+                            })
+                        } else {
+                            log(`Ignoring shortcut ${idInfo.path}/${item.title}`);
+                        }
+                    }
+                }
+                pageToken = items.nextPageToken;
+            } catch (err) {
+                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
+                // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
+                // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
+                // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
+                log(msg);
+                //ttt2 improve
+            }
+        } while (pageToken);
+    }
+
+
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {function(number): string} confirmationMessageGetter
+     * @returns {(InputInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
+     */
+    getInputInfos(sheet, confirmationMessageGetter) {
+        let inputInfos = this.getProcessedInputData(sheet);
+        if (!inputInfos) {
+            return null;
+        }
+
+        const confirmationMessage = confirmationMessageGetter(inputInfos.length);
+        if (confirmationMessage && !showConfirmYesNoBox(confirmationMessage)) {
+            return null;
         }
 
         if (!inputInfos.length) {
@@ -813,14 +976,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             });
             this.log(sheet, 'Processing all the folders, as no folder names or IDs were specified');
         }
-
-        this.log(sheet, '------------------ Starting update ------------------');
-        const timeSetter = new TimeSetter();
-        for (const inputInfo of inputInfos) {
-            timeSetter.processFolder(inputInfo.idInfos[0], (message => this.log(sheet, message)));
-        }
-        this.log(sheet, '------------------ Update finished ------------------');
-        return true;
+        return inputInfos;
     }
 }
 
@@ -907,6 +1063,10 @@ function menuValidateFolders() {
  */
 function menuSetTimesFolders() {
     return driveFolderProcessor.setTimes(true);
+}
+
+function menuListFolders() {
+    return driveFolderProcessor.listFiles(true);
 }
 
 
@@ -1173,4 +1333,4 @@ function isoDateToShort(isoDate) {
         .replace(/:00$/, '')} UTC`;
 }
 
-//ttt1 Perhaps have a "dry-run"
+//ttt1 Perhaps have a "dry-run", possibly enabled via a "Settings" sheet
