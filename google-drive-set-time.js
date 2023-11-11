@@ -66,6 +66,10 @@ function tst02() {
     console.log(items.items ? items.items.length : 'no results');
 }
 
+/**
+ * @typedef {Function} SimpleLogger
+ * @param {string} message
+ */
 
 /*
 {
@@ -494,9 +498,9 @@ class DriveObjectProcessor {
                             }
                         } else if (item.mimeType !== SHORTCUT_MIME) {
                             // This is not an error, but we'd still like to log something
-                            logS(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
+                            this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
                         } else {
-                            logS(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
+                            this.log(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
                         }
                     }
                     pageToken = items.nextPageToken;
@@ -557,9 +561,9 @@ class DriveObjectProcessor {
                     }
                 } else if (item.mimeType !== SHORTCUT_MIME) {
                     // This is not an error, but we'd still like to log something
-                    logS(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
+                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
                 } else {
-                    logS(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
+                    this.log(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
                 }
             } catch (err) {
                 errors.push(`${this.objectLabel} with ID ${id} not found`);
@@ -694,7 +698,24 @@ class DriveObjectProcessor {
         try {
             SpreadsheetApp.getUi().alert(message);
         } catch {
-            logS(sheet, message);
+            this.log(sheet, message);
+        }
+    }
+
+    /**
+     * Logs a message in the given sheet. If that fails, logs to the console.
+     *
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {string} message
+     */
+    log(sheet, message) {
+        try {
+            const row = sheet.getLastRow() + 1;
+            const range = sheet.getRange(row, 1);
+            range.setValue(`${formatLogDate(new Date())} ${message}`);
+            sheet.getRange(row, 1, 1, this.outputColumn).setBackground(LOG_BG);
+        } catch (err) {
+            console.log(`Failed to log in UI "${message}". "${err}"`);
         }
     }
 }
@@ -756,15 +777,15 @@ class DriveFolderProcessor extends DriveObjectProcessor {
                 }],
                 errors: [],
             });
-            logS(sheet, 'Processing all the folders, as no folder names or IDs were specified');
+            this.log(sheet, 'Processing all the folders, as no folder names or IDs were specified');
         }
 
-        logS(sheet, '------------------ Starting update ------------------');
+        this.log(sheet, '------------------ Starting update ------------------');
         const timeSetter = new TimeSetter();
         for (const inputInfo of inputInfos) {
-            timeSetter.processFolder(sheet, inputInfo.idInfos[0]);
+            timeSetter.processFolder(inputInfo.idInfos[0], (message => this.log(sheet, message)));
         }
-        logS(sheet, '------------------ Update finished ------------------');
+        this.log(sheet, '------------------ Update finished ------------------');
         return true;
     }
 }
@@ -803,12 +824,12 @@ class DriveFileProcessor extends DriveObjectProcessor {
             return false;
         }
 
-        logS(sheet, '------------------ Starting update ------------------');
+        this.log(sheet, '------------------ Starting update ------------------');
         const timeSetter = new TimeSetter();
         for (const inputInfo of inputInfos) {
-            timeSetter.processFile(sheet, inputInfo);
+            timeSetter.processFile(inputInfo, (message => this.log(sheet, message)));
         }
-        logS(sheet, '------------------ Update finished ------------------');
+        this.log(sheet, '------------------ Update finished ------------------');
         return true;
     }
 }
@@ -898,11 +919,11 @@ class TimeSetter {
     }
 
     /**
-     * @param {SpreadsheetApp.Sheet} sheet
      * @param {IdInfo} idInfo
+     * @param {SimpleLogger} log
      * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
      */
-    processFolder(sheet, idInfo) {
+    processFolder(idInfo, log) {
         const existing = this.processed.get(idInfo.id);
         if (existing) {
             return existing;
@@ -937,12 +958,12 @@ class TimeSetter {
                             ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
                             // may return undefined, while the field is just boolean
                         };
-                        newTime = this.processFolder(sheet, childIdInfo);
+                        newTime = this.processFolder(childIdInfo, log);
                     } else {
                         if (item.mimeType !== SHORTCUT_MIME) {
                             newTime = item.modifiedDate;
                         } else {
-                            logS(sheet, `Ignoring date of shortcut ${idInfo.path}/${item.title}`);
+                            log(`Ignoring date of shortcut ${idInfo.path}/${item.title}`);
                         }
                     }
                     if (newTime > res) {
@@ -955,7 +976,7 @@ class TimeSetter {
                 // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
                 // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
                 // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
-                logS(sheet, msg);
+                log(msg);
                 //ttt2 improve
             }
         } while (pageToken);
@@ -965,32 +986,32 @@ class TimeSetter {
                 // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
                 try {
                     if (idInfo.ownedByMe) {
-                        logS(sheet, `Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
+                        log(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
                         updateModifiedTime(idInfo.id, res);
                     } else {
-                        logS(sheet, `Not updating ${idInfo.path}, which has a different owner`);
+                        log(`Not updating ${idInfo.path}, which has a different owner`);
                     }
                 } catch (err) {
                     const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
-                    logS(sheet, msg);
+                    log(msg);
                     //ttt2 improve
                 }
             }
         } else {
-            logS(sheet, `Time ${res} is already correct for ${idInfo.path}`);
+            log(`Time ${res} is already correct for ${idInfo.path}`);
         }
         this.processed.set(idInfo.id, res);
         return res;
     }
 
     /**
-     * @param {SpreadsheetApp.Sheet} sheet
      * @param {InputInfo} inputInfo
+     * @param {SimpleLogger} log
      * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
      */
-    processFile(sheet, inputInfo) {
+    processFile(inputInfo, log) {
         const idInfo = inputInfo.idInfos[0];
-        logS(sheet, `Setting time to ${inputInfo.date} for ${idInfo.path}`);
+        log(`Setting time to ${inputInfo.date} for ${idInfo.path}`);
         updateModifiedTime(idInfo.id, inputInfo.date);
     }
 }
@@ -1063,22 +1084,6 @@ function getOwnedByMe(file) {
         return false;
     }
     return undefined;
-}
-
-/**
- * Logs a message in the given sheet. If that fails, logs to the console.
- * @param {SpreadsheetApp.Sheet} sheet
- * @param {string} message
- */
-function logS(sheet, message) {
-    try {
-        const row = sheet.getLastRow() + 1;
-        const range = sheet.getRange(row, 1);
-        range.setValue(`${formatLogDate(new Date())} ${message}`);
-        sheet.getRange(row, 1, 1, 2).setBackground(LOG_BG);
-    } catch (err) {
-        console.log(`Failed to log in UI "${message}". "${err}"`);
-    }
 }
 
 
