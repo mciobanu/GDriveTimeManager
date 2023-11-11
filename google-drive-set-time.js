@@ -187,8 +187,10 @@ function onOpen() {
 
 const LOG_START = 'Log (don\'t change this cell)';
 
-const NAMES_BG = '#efe';   //ttt0: different color and protection for computed data
-const IDS_BG = '#eef';
+const NAMES_BG = '#e0ffe0';
+const NAMES_OUT_BG = '#f0fff0';
+const IDS_BG = '#e0e0ff';
+const IDS_OUT_BG = '#f0f0ff';
 const LOG_BG = '#ffc';
 const ERROR_BG = '#fbb';
 
@@ -208,7 +210,7 @@ class DriveObjectProcessor {
         this.logLabelStart = LOG_START;
         this.rangeNotFoundErr = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
             + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt1 perhaps
-        // make most members private, but not sure it's woth it, and V8 doesn't seem to support it
+        // make most members private, but not sure it's worth it, and V8 doesn't seem to support it
 
         this.expectFolders = expectFolders;
         this.objectLabel = expectFolders ? 'Folder' : 'File';  //ttt1: Review idea of computing these here vs. passing
@@ -296,9 +298,18 @@ class DriveObjectProcessor {
         if (!rangeInfo) {
             return false;
         }
-        sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, this.outputColumn).setBackground(NAMES_BG);
-        sheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, this.outputColumn).setBackground(IDS_BG);
-        sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn).setBackground(LOG_BG);
+        sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, this.outputColumn - 1)
+            .setBackground(NAMES_BG);
+        sheet.getRange(rangeInfo.namesBegin, this.outputColumn, rangeInfo.namesEnd - rangeInfo.namesBegin, 1)
+            .setBackground(NAMES_OUT_BG)
+            .protect().setWarningOnly(true);
+        sheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, this.outputColumn - 1)
+            .setBackground(IDS_BG);
+        sheet.getRange(rangeInfo.idsBegin, this.outputColumn, rangeInfo.idsEnd - rangeInfo.idsBegin, 1)
+            .setBackground(IDS_OUT_BG)
+            .protect().setWarningOnly(true);
+        sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
+            .setBackground(LOG_BG);
 
         const PLAIN_TEXT_FMT = '@STRING@';
         if (this.dateColumn) {
