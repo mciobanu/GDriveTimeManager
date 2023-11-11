@@ -929,7 +929,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
                                 mime: item.mimeType,
                             })
                         } else {
-                            log(`Ignoring shortcut ${idInfo.path}/${item.title}`);
+                            this.log(sheet, `Ignoring shortcut ${idInfo.path}/${item.title}`);
                         }
                     }
                 }
@@ -939,7 +939,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
                 // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
                 // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
                 // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
-                log(msg);
+                this.log(sheet, msg); //ttt0: add "this." before " log"
                 //ttt2 improve
             }
         } while (pageToken);
