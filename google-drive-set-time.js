@@ -201,12 +201,14 @@ class DriveObjectProcessor {
      * @param {string} sheetName
      * @param {string} nameLabelStart
      * @param {string} idLabelStart
+     * @param {string[]} columnLabels
      * @param {boolean} expectFolders whether we want folders or files; (enum would be nicer, but JS doesn't have them)  //ttt0: find better name
      */
-    constructor(sheetName, nameLabelStart, idLabelStart, expectFolders) {
+    constructor(sheetName, nameLabelStart, idLabelStart, columnLabels, expectFolders) {
         this.sheetName = sheetName;
         this.nameLabelStart = nameLabelStart;
         this.idLabelStart = idLabelStart;
+        this.columnLabels = columnLabels;
         this.logLabelStart = LOG_START;
         this.rangeNotFoundErr = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
             + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt1 perhaps
@@ -247,7 +249,9 @@ class DriveObjectProcessor {
         /** @type SpreadsheetApp.Sheet */
         const sheet = this.getSheet();
         this.addLabelsIfEmptySheet(sheet);
-        this.applyColorToSheet(sheet);
+        if (!this.applyColorToSheet(sheet)) {
+            throw new Error('applyColorToSheet() failed');  //ttt1: see how to improve; we want getSheet() to not return non-null until all is set up
+        }
     }
 
     /**
@@ -264,18 +268,26 @@ class DriveObjectProcessor {
         const BOLD_FONT = 'bold';
         let crtLine = 1;
 
-        function addLabel(label, increment) {
-            const range = sheet.getRange(crtLine, 1);
-            range.setValue(label);
-            range.setFontWeight(BOLD_FONT);
-            //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
-            range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
+        /**
+         *
+         * @param {string[]} labels
+         * @param {number} increment
+         */
+        function addLabel(labels, increment) {
+            for (let i = 0; i < labels.length; i += 1) {
+                const range = sheet.getRange(crtLine, i + 1);
+                const label = labels[i];
+                range.setValue(label);
+                range.setFontWeight(BOLD_FONT);
+                //range.protect().removeEditor('XYZ@gmail.com'); // It's what we want, but doesn't work
+                range.protect().setWarningOnly(true); // We really want nobody being able to edit, but it can't be done, so we use warnings
+            }
             crtLine += increment;
         }
 
-        addLabel(this.nameLabelStart, DEFAULT_SOURCE_HEIGHT);
-        addLabel(this.idLabelStart, DEFAULT_SOURCE_HEIGHT);
-        addLabel(this.logLabelStart, DEFAULT_SOURCE_HEIGHT);
+        addLabel([this.nameLabelStart, ...this.columnLabels], DEFAULT_SOURCE_HEIGHT);
+        addLabel([this.idLabelStart, ...this.columnLabels], DEFAULT_SOURCE_HEIGHT);
+        addLabel([this.logLabelStart], DEFAULT_SOURCE_HEIGHT);
 
         // Use some educated guesses for the column widths ...
         sheet.autoResizeColumn(1);
@@ -303,12 +315,14 @@ class DriveObjectProcessor {
             .setBackground(NAMES_BG);
         sheet.getRange(rangeInfo.namesBegin, this.outputColumn, rangeInfo.namesEnd - rangeInfo.namesBegin, 1)
             .setBackground(NAMES_OUT_BG)
-            .protect().setWarningOnly(true);
+            //.protect().setWarningOnly(true)    //!!! It's nice to write-protect, but then there are warnings when inserting. ttt2: See if possible to improve
+        ;
         sheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, this.outputColumn - 1)
             .setBackground(IDS_BG);
         sheet.getRange(rangeInfo.idsBegin, this.outputColumn, rangeInfo.idsEnd - rangeInfo.idsBegin, 1)
             .setBackground(IDS_OUT_BG)
-            .protect().setWarningOnly(true);
+            //.protect().setWarningOnly(true)
+        ;
         sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
             .setBackground(LOG_BG);
 
@@ -328,7 +342,7 @@ class DriveObjectProcessor {
      * @returns {ValidationInfo|null} All the data necessary to set the times. A null is returned iff it couldn't find the ranges
      */
     getValidationInfo(sheet) {
-        sheet.activate();
+        sheet.activate(); //ttt1: This causes cell A1 to become selected. Perhaps get what's current first, then activate, then set current
         const rangeInfo = this.getRangeInfo(sheet);
         if (!rangeInfo) {
             return null;
@@ -652,7 +666,6 @@ class DriveObjectProcessor {
     validateInput() {
         const sheet = this.getSheet();
         this.getProcessedInputData(sheet);
-        //ttt0: See why first cell gets selected
     }
 
     /**
@@ -695,7 +708,12 @@ class DriveObjectProcessor {
      * @param {SpreadsheetApp.Sheet} sheet
      */
     clearErrors(sheet) {
-        sheet.getRange(1, this.outputColumn, sheet.getLastRow()).clearContent();
+        const rangeInfo = this.getRangeInfo(sheet);
+        if (!rangeInfo) {
+            return;
+        }
+        sheet.getRange(rangeInfo.namesBegin + 1, this.outputColumn, rangeInfo.namesEnd - rangeInfo.namesBegin - 1).clearContent();
+        sheet.getRange(rangeInfo.idsBegin + 1, this.outputColumn, rangeInfo.idsEnd - rangeInfo.idsBegin - 1).clearContent();
     }
 
 
@@ -732,15 +750,18 @@ class DriveObjectProcessor {
     }
 }
 
+const OUTPUT_COLUMN_LABEL = 'Interpreted input data (changes to this column get overwritten)'
 
 const FOLDER_NAME_START = 'Folder names, one per cell (don\'t change this cell)';
 const FOLDER_ID_START = 'Folder IDs, one per cell (don\'t change this cell)';
+const FOLDER_COLUMN_LABELS = [OUTPUT_COLUMN_LABEL];
 
 class DriveFolderProcessor extends DriveObjectProcessor {
     constructor() {
         super(FOLDERS_SHEET_NAME,
             FOLDER_NAME_START,
             FOLDER_ID_START,
+            FOLDER_COLUMN_LABELS,
             true);
     }
 
@@ -808,11 +829,14 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
 const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
 
+const FILE_COLUMN_LABELS = ['New date', OUTPUT_COLUMN_LABEL];
+
 class DriveFileProcessor extends DriveObjectProcessor {
     constructor() {
         super(FILES_SHEET_NAME,
             FILE_NAME_START,
             FILE_ID_START,
+            FILE_COLUMN_LABELS,
             false);
     }
 
