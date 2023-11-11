@@ -751,6 +751,14 @@ class DriveObjectProcessor {
             console.log(`Failed to log in UI "${message}". "${err}"`);
         }
     }
+
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @return {function(*): void}
+     */
+    getLog(sheet) {
+        return (message => this.log(sheet, message))
+    }
 }
 
 const OUTPUT_COLUMN_LABEL = 'Interpreted input data (changes to this column get overwritten)'
@@ -806,7 +814,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         this.log(sheet, '------------------ Starting update ------------------');
         const timeSetter = new TimeSetter();
         for (const inputInfo of inputInfos) {
-            timeSetter.processFolder(inputInfo.idInfos[0], (message => this.log(sheet, message)));
+            timeSetter.processFolder(inputInfo.idInfos[0], this.getLog(sheet));
         }
         this.log(sheet, '------------------ Update finished ------------------');
         return true;
@@ -845,11 +853,36 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         // const filesMap = new Map();  //ttt1: Not sure how to approach the issue of multiple paths to the same file
         /** @type {ListInfo[]} */
         const files= [];
+
         /** @type {Set<string>} */
         const exploredFolders = new Set();
 
+        /** @type {traverseCallback} */
+        const onFile = (item, idInfo) => {
+            files.push({
+                id: item.id,
+                name: item.title,
+                path: idInfo.path.substring(0, idInfo.path.length - item.title.length - 1), // the path to the root is an empty string, so as paths don't end with a "/".  //ttt0: Review, perhaps always end, perhaps have root as an exception
+                size: item.fileSize,  //ttt2: see why is this a string
+                time: item.modifiedDate,
+                mime: item.mimeType,
+            })
+        };
+
+        /** @type {traverseCallback} */
+        const onShortcut = (item, idInfo) => {
+            this.log(sheet, `Ignoring shortcut ${idInfo.path}/${item.title}`);
+        };
+
+        /** @type {traverseCallbackErr} */
+        const onError = (idInfo, err) => {
+            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
+            this.log(sheet, msg);
+        };
+
         for (const inputInfo of inputInfos) {
-            this.listFolder(sheet, inputInfo.idInfos[0], files, exploredFolders); // When there are no errors, there is exactly 1 ID per entry
+            //this.listFolder(sheet, inputInfo.idInfos[0], files, exploredFolders); // When there are no errors, there is exactly 1 ID per entry
+            recTraverseFolder(this.getLog(sheet), inputInfo.idInfos[0], null, onFile, onShortcut, onError, exploredFolders); // When there are no errors, there is exactly 1 ID per entry
         }
         this.log(sheet, '------------------------------------');
         files.sort((l1, l2) => (l1.path + l1.name).localeCompare(l2.path + l2.name));
@@ -875,74 +908,6 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             }
         }
         this.log(sheet, '------------------ Listing finished ------------------');
-    }
-
-
-    /**
-     * @param {SpreadsheetApp.Sheet} sheet
-     * @param {IdInfo} idInfo
-     * @param {ListInfo[]} files
-     * @param {Set<string>} exploredFolders
-     */
-    listFolder(sheet, idInfo, files, exploredFolders) {
-        if (exploredFolders.has(idInfo.id)) {
-            this.log(sheet, `Already processed ${idInfo.path} [${idInfo.id}]`)
-            return;
-        }
-        exploredFolders.add(idInfo.id)
-
-        const query = `"${idInfo.id}" in parents and trashed = false`;
-        let pageToken = null;
-
-        do {
-            try {
-                const items = Drive.Files.list({  //ttt0: duplicate code for going through children and do something
-                    q: query,
-                    maxResults: 100,
-                    pageToken,
-                });
-
-                if (!items.items || items.items.length === 0) {
-                    break;
-                }
-                for (let i = 0; i < items.items.length; i++) {
-                    const item = items.items[i];
-                    if (item.mimeType === FOLDER_MIME) {
-                        /** @type {IdInfo}} */
-                        const childIdInfo = {
-                            id: item.id,
-                            modifiedDate: item.modifiedDate,
-                            multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
-                            path: `${idInfo.path}/${item.title}`,
-                            ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
-                            // may return undefined, while the field is just boolean
-                        };
-                        this.listFolder(sheet, childIdInfo, files, exploredFolders);
-                    } else {
-                        if (item.mimeType !== SHORTCUT_MIME) {
-                            files.push({
-                                id: item.id,
-                                name: item.title,
-                                path: idInfo.path,
-                                size: item.fileSize,  //ttt2: see why is this a string
-                                time: item.modifiedDate,
-                                mime: item.mimeType,
-                            })
-                        } else {
-                            this.log(sheet, `Ignoring shortcut ${idInfo.path}/${item.title}`);
-                        }
-                    }
-                }
-                pageToken = items.nextPageToken;
-            } catch (err) {
-                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
-                // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
-                // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
-                // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
-                this.log(sheet, msg); //ttt0: add "this." before " log"
-                //ttt2 improve
-            }
-        } while (pageToken);
     }
 
 
@@ -980,6 +945,80 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     }
 }
 
+/**
+ * @typedef {(function(GoogleAppsScript.Drive.Schema.File, IdInfo)|null)} traverseCallback
+ */
+/**
+ * @typedef {(function(IdInfo, any)|null)} traverseCallbackErr
+ */
+
+
+/**
+ * Starting from a folder, it finds its children and invokes callbacks on them. For folders, it also calls itself.
+ * Keeps track of what was processed thus far, to prevent processing a folder multiple times.
+ *
+ * @param {SimpleLogger} log
+ * @param {IdInfo} idInfo for the start folder; the "id" field must be correct; the "path" field is used to compute paths of sub-folders
+ * @param {traverseCallback} onFolder
+ * @param {traverseCallback} onFile
+ * @param {traverseCallback} onShortcut
+ * @param {traverseCallbackErr} onError
+ * @param {Set<string>} exploredFolders used to avoid passing several times through the same folder (e.g. when the user asked for a folder and an ancestor)
+ */
+function recTraverseFolder(log, idInfo, onFolder, onFile, onShortcut, onError, exploredFolders) {
+    if (exploredFolders.has(idInfo.id)) {
+        log(`Already processed ${idInfo.path} [${idInfo.id}]`)
+        return;
+    }
+    exploredFolders.add(idInfo.id)
+
+    const query = `"${idInfo.id}" in parents and trashed = false`;  //ttt2: Perhaps improve. An alternative is
+    // to not recurse here, but have onFolder make another call, and then the query can be anything
+
+    let pageToken = null;
+
+    do {
+        try {
+            const items = Drive.Files.list({
+                q: query,
+                maxResults: 100,
+                pageToken,
+            });
+
+            if (!items.items || items.items.length === 0) {
+                break;
+            }
+            for (let i = 0; i < items.items.length; i++) {
+                const item = items.items[i];
+                /** @type {IdInfo}} */
+                const childIdInfo = {
+                    id: item.id,
+                    modifiedDate: item.modifiedDate,
+                    multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
+                    path: `${idInfo.path}/${item.title}`,
+                    ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
+                    // may return undefined, while the field is just boolean
+                };
+                if (item.mimeType === FOLDER_MIME) {
+                    onFolder && onFolder(item, childIdInfo);
+                    recTraverseFolder(log, childIdInfo, onFolder, onFile, onShortcut, onError, exploredFolders);
+                } else {
+                    if (item.mimeType === SHORTCUT_MIME) {
+                        onShortcut && onShortcut(item, childIdInfo);
+                    } else {
+                        onFile && onFile(item, childIdInfo);
+                    }
+                }
+            }
+            pageToken = items.nextPageToken;
+        } catch (err) {
+            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
+            log(msg);
+            onError && onError(idInfo, err);
+            //ttt2 improve
+        }
+    } while (pageToken);
+}
 
 
 const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
