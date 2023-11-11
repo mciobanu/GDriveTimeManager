@@ -846,10 +846,10 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         /** @type {ListInfo[]} */
         const files= [];
         /** @type {Set<string>} */
-        const exploredDirs = new Set();
+        const exploredFolders = new Set();
 
         for (const inputInfo of inputInfos) {
-            this.listDir(sheet, inputInfo.idInfos[0], files, exploredDirs); // When there are no errors, there is exactly 1 ID per entry
+            this.listFolder(sheet, inputInfo.idInfos[0], files, exploredFolders); // When there are no errors, there is exactly 1 ID per entry
         }
         this.log(sheet, '------------------------------------');
         files.sort((l1, l2) => (l1.path + l1.name).localeCompare(l2.path + l2.name));
@@ -882,14 +882,14 @@ class DriveFolderProcessor extends DriveObjectProcessor {
      * @param {SpreadsheetApp.Sheet} sheet
      * @param {IdInfo} idInfo
      * @param {ListInfo[]} files
-     * @param {Set<string>} exploredDirs
+     * @param {Set<string>} exploredFolders
      */
-    listDir(sheet, idInfo, files, exploredDirs) {
-        if (exploredDirs.has(idInfo.id)) {
+    listFolder(sheet, idInfo, files, exploredFolders) {
+        if (exploredFolders.has(idInfo.id)) {
             this.log(sheet, `Already processed ${idInfo.path} [${idInfo.id}]`)
             return;
         }
-        exploredDirs.add(idInfo.id)
+        exploredFolders.add(idInfo.id)
 
         const query = `"${idInfo.id}" in parents and trashed = false`;
         let pageToken = null;
@@ -917,7 +917,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
                             ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
                             // may return undefined, while the field is just boolean
                         };
-                        this.listDir(sheet, childIdInfo, files, exploredDirs);
+                        this.listFolder(sheet, childIdInfo, files, exploredFolders);
                     } else {
                         if (item.mimeType !== SHORTCUT_MIME) {
                             files.push({
