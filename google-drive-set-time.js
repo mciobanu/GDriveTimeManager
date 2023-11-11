@@ -513,7 +513,7 @@ class DriveObjectProcessor {
                         /** @type IdInfo */
                         let idInfo;
                         const item = items.items[i];
-                        if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME)) {
+                        if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME && item.mimeType !== FOLDER_MIME)) {
                             idInfo = getIdInfo(item.id);
                             idInfos.push(idInfo);
                             const existing = idInfosMap.get(idInfo.id);
@@ -577,7 +577,7 @@ class DriveObjectProcessor {
             try {
                 const item = Drive.Files.get(id);
 
-                if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME)) {  //ttt1: duplicate code with names
+                if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME && item.mimeType !== FOLDER_MIME)) {  //ttt1: duplicate code with names
                     idInfo = getIdInfo(item.id);
                     const existing = idInfosMap.get(idInfo.id);
                     if (existing) {
