@@ -151,7 +151,7 @@ InputInfo:
 */
 
 /**
- * @typedef {Object} NameAndIdValidationInfo  //ttt0: Rename "Folder"
+ * @typedef {Object} ValidationInfo
  *
  * @property {RangeInfo} rangeInfo
  * @property {InputInfo[]} inputNameInfos
@@ -169,7 +169,10 @@ function onOpen() {
     // https://developers.google.com/apps-script/guides/menus
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('Modification times')
+        .addItem(`Validate folder data`, 'menuValidateFolders')
         .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
+        .addItem(`Validate file data`, 'menuValidateFiles')
+        .addItem(`Set time for specified files`, 'menuSetTimesFiles')
         //.addItem(`List content of specified  folders`, 'menuListFolders')
         //.addItem(`Change time for file ${SOURCE_LIST}`, 'menuSetTimesFile') //ttt0 implement
         .addToUi();
@@ -181,7 +184,7 @@ function onOpen() {
 
 const LOG_START = 'Log (don\'t change this cell)';
 
-const NAMES_BG = '#efe';
+const NAMES_BG = '#efe';   //ttt0: different color and protection for computed data
 const IDS_BG = '#eef';
 const LOG_BG = '#ffc';
 const ERROR_BG = '#fbb';
@@ -193,7 +196,7 @@ class DriveObjectProcessor {
      * @param {string} sheetName
      * @param {string} nameLabelStart
      * @param {string} idLabelStart
-     * @param {boolean} expectFolders whether we want folders or files; (enum would be nicer, but JS doesn't have them)
+     * @param {boolean} expectFolders whether we want folders or files; (enum would be nicer, but JS doesn't have them)  //ttt0: find better name
      */
     constructor(sheetName, nameLabelStart, idLabelStart, expectFolders) {
         this.sheetName = sheetName;
@@ -205,30 +208,38 @@ class DriveObjectProcessor {
         // make most members private, but not sure it's woth it, and V8 doesn't seem to support it
 
         this.expectFolders = expectFolders;
-        this.objectLabel = expectFolders ? 'Folder' : 'File';
+        this.objectLabel = expectFolders ? 'Folder' : 'File';  //ttt1: Review idea of computing these here vs. passing
+        // them as params. Adds coupling but cuts param count.
         this.objectLabelLc = expectFolders ? 'folder' : 'file';
         this.reverseObjectLabelLc = expectFolders ? 'file' : 'folder';
+        this.outputColumn = expectFolders ? 2 : 3;
+        this.dateColumn = expectFolders ? 0 : 2;
     }
 
     /**
-     * @returns {GoogleAppsScript.Spreadsheet.Sheet}
+     * @returns {GoogleAppsScript.Spreadsheet.Sheet} The sheet associated with the object. It creates it if it doesn't
+     * exist
      */
     getSheet() {
         //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-        for (let i = 0; i < 2; i += 1) {
-            const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
-            if (sheet) {
-                return sheet;
-            }
-            setupSheets(); //ttt1: Review this
+        let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+        if (!sheet) {
+            sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
+            sheet.setName(this.sheetName);
         }
-        return null; // this should never be reached
+        return sheet;
+    }
+
+    sheetExists() {
+        return !!SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
     }
 
     /**
-     * @param {SpreadsheetApp.Sheet} sheet
+     * Adds labels (only if sheet is empty) and sets background colors
      */
-    setupSheet(sheet) {
+    setupSheet() {
+        /** @type SpreadsheetApp.Sheet */
+        const sheet = this.getSheet();
         this.addLabelsIfEmptySheet(sheet);
         this.applyColorToSheet(sheet);
     }
@@ -264,7 +275,10 @@ class DriveObjectProcessor {
         sheet.autoResizeColumn(1);
         const w = sheet.getColumnWidth(1);
         sheet.setColumnWidth(1, w * 1.2);
-        sheet.setColumnWidth(2, w * 2.4);
+        if (this.dateColumn) {
+            sheet.setColumnWidth(this.dateColumn, w * 0.7);
+        }
+        sheet.setColumnWidth(this.outputColumn, w * 2.4);
     }
 
     /**
@@ -279,20 +293,26 @@ class DriveObjectProcessor {
         if (!rangeInfo) {
             return false;
         }
-        sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, 2).setBackground(NAMES_BG);
-        sheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, 2).setBackground(IDS_BG);
-        sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, 2).setBackground(LOG_BG);
+        sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.namesEnd - rangeInfo.namesBegin, this.outputColumn).setBackground(NAMES_BG);
+        sheet.getRange(rangeInfo.idsBegin, 1, rangeInfo.idsEnd - rangeInfo.idsBegin, this.outputColumn).setBackground(IDS_BG);
+        sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn).setBackground(LOG_BG);
+
+        const PLAIN_TEXT_FMT = '@STRING@';
+        if (this.dateColumn) {
+            sheet.getRange(rangeInfo.namesBegin, this.dateColumn, rangeInfo.idsEnd - rangeInfo.namesBegin, this.dateColumn)
+                .setNumberFormat(PLAIN_TEXT_FMT);
+        }
         return true;
     }
 
 
     /**
-     * Reads the names and IDs and generates errors, if necessary
+     * Reads the names and IDs (and dates, for files) and generates errors, if necessary
      * @param {SpreadsheetApp.Sheet} sheet
      *
-     * @returns {NameAndIdValidationInfo|null} A null is returned iff it couldn't find the ranges
+     * @returns {ValidationInfo|null} All the data necessary to set the times. A null is returned iff it couldn't find the ranges
      */
-    validateNamesAndIds(sheet) {
+    getValidationInfo(sheet) {
         sheet.activate();
         const rangeInfo = this.getRangeInfo(sheet);
         if (!rangeInfo) {
@@ -301,10 +321,16 @@ class DriveObjectProcessor {
 
         /** @type {Map<string, IdInfo>} */
         const idInfosMap = new Map();
-        const names = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
-        const inputNameInfos = this.validateNames(sheet, names, idInfosMap);
+        const inputNames = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
+        const inputNameInfos = this.validateNames(sheet, inputNames, idInfosMap);
         const inputIds = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
         const inputIdInfos = this.validateIds(sheet, inputIds, idInfosMap);
+        if (this.dateColumn) {
+            const inputNameDates = DriveObjectProcessor.getColumnData(sheet, this.dateColumn, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
+            const inputIdDates = DriveObjectProcessor.getColumnData(sheet, this.dateColumn, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
+            this.validateTimes(sheet, inputNameInfos, inputNameDates);
+            this.validateTimes(sheet, inputIdInfos, inputIdDates);
+        }
         const nameErrors = inputNameInfos.filter((val) => val.errors.length);
         const idErrors = inputIdInfos.filter((val) => val.errors.length);
         const hasErrors = nameErrors.length > 0 || idErrors.length > 0;
@@ -316,6 +342,43 @@ class DriveObjectProcessor {
             hasErrors,
             idInfosMap,
         };
+    }
+
+
+    /**
+     * Changes inputInfos by setting the date field. When there's a mismatch between entries, adds an error, and
+     * also adds an element to inputInfos if just the date is present.
+     *
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {InputInfo[]} inputInfos
+     * @param {string[]} inputDates
+     */
+    validateTimes(sheet, inputInfos, inputDates) {
+        for (let i = 0; i < inputDates.length; i++) {
+            /** @type {InputInfo} */
+            let inputInfo = inputInfos[i];
+            const dateStr = inputDates[i];
+            if (dateStr) {
+                if (!inputInfo) {
+                    inputInfo = {
+                        idInfos: [],
+                        errors: [`Missing ${this.objectLabelLc} field`],
+                    }
+                    inputInfos[i] = inputInfo;
+                }
+                try {
+                    const date = new Date(dateStr);
+                    inputInfo.date = formatShortDate(date);
+                } catch {
+                    inputInfo.errors.push('Error parsing date field');
+                }
+                continue;
+            }
+            if (!inputInfo) {
+                continue;
+            }
+            inputInfo.errors.push('Missing time field');
+        }
     }
 
 
@@ -530,48 +593,82 @@ class DriveObjectProcessor {
             return false;
         }
 
-        for (let i = 0; i < inputNameInfos.length; i += 1) {
-            /** @type InputInfo */
-            const inputNameInfo = inputNameInfos[i];
-            if (!inputNameInfo) {
-                continue;
-            }
-            /** @type string[] */
-            let lines = [];
-            for (const idInfo of inputNameInfo.idInfos) {
-                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''} [${idInfo.id}]`);
-            }
-            const cellRange = sheet.getRange(rangeInfo.namesBegin + 1 + i, 2);
-            if (inputNameInfo.errors.length) {
-                lines.push(...inputNameInfo.errors);
-                cellRange.setBackground(ERROR_BG);
-            }
-            cellRange.setValue(lines.join('\n'));
-        }
-
-        for (let i = 0; i < inputIdInfos.length; i += 1) {
-            /** @type InputInfo */
-            const inputIdInfo = inputIdInfos[i];
-            if (!inputIdInfo) {
-                continue;
-            }
-            /** @type string[] */
-            let lines = [];
-            const idInfo = inputIdInfo.idInfos[0]; //!!! It's OK if the array is empty, as [0] will return
-            // undefined. (For IDs, we have an entry if the ID is correct and none if there's an error.)
-            if (idInfo) {
-                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''}  [${idInfo.id}]`); //ttt1 duplicate code "(and others)"
-            }
-            const cellRange = sheet.getRange(rangeInfo.idsBegin + 1 + i, 2);
-            if (inputIdInfo.errors.length) {
-                lines.push(...inputIdInfo.errors);
-                cellRange.setBackground(ERROR_BG);
-            }
-            cellRange.setValue(lines.join('\n'));
-        }
+        this.updateUiHlp(sheet, inputNameInfos, rangeInfo.namesBegin);
+        this.updateUiHlp(sheet, inputIdInfos, rangeInfo.idsBegin);
 
         //sheet.autoResizeColumns(1, 2); //!!! Not right, as it include the logs
         return true;
+    }
+
+    /**
+     *
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {InputInfo[]} inputInfos
+     * @param firstRow
+     */
+    updateUiHlp(sheet, inputInfos, firstRow) {
+        for (let i = 0; i < inputInfos.length; i += 1) {
+            /** @type InputInfo */
+            const inputInfo = inputInfos[i];
+            if (!inputInfo) {
+                continue;
+            }
+            /** @type string[] */
+            let lines = [];
+            for (const idInfo of inputInfo.idInfos) {
+                lines.push(`${idInfo.path}${idInfo.multiplePaths ? ' (and others)' : ''} [${idInfo.id}]`);
+            }
+            if (inputInfo.date) {
+                lines.push(inputInfo.date);
+            }
+            const cellRange = sheet.getRange(firstRow + 1 + i, this.outputColumn);
+            if (inputInfo.errors.length) {
+                lines.push(...inputInfo.errors);
+                cellRange.setBackground(ERROR_BG);
+            }
+            cellRange.setValue(lines.join('\n'));
+        }
+    }
+
+
+    /**
+     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
+     */
+    validateInput() {
+        const sheet = this.getSheet();
+        this.getProcessedInputData(sheet);
+        //ttt0: See why first cell gets selected
+    }
+
+    /**
+     * Gathers and validates the data, updating the sheet in the process. Mainly makes sure that files / folders
+     * exist and there are no duplicates. Also, for files, it checks that the times match and can be parsed. //ttt1 coupling
+     *
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
+     */
+    getProcessedInputData(sheet) {
+
+        const vld = this.getValidationInfo(sheet);
+        if (!vld) {
+            return null;
+        }
+
+        //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
+        // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
+        if (!this.updateUiAfterValidation(sheet, vld.rangeInfo, vld.inputNameInfos, vld.inputIdInfos)) {
+            // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
+            return null;
+        }
+
+        if (vld.hasErrors) {
+            this.showMessage(sheet, 'Found some errors, which need to be resolved before proceeding with setting the times');
+            return null;
+        }
+
+        /** @type {IdInfo[]} */
+        const idInfosArr = Array.from(vld.idInfosMap.values());
+        return idInfosArr;
     }
 
 
@@ -581,7 +678,7 @@ class DriveObjectProcessor {
      * @param {SpreadsheetApp.Sheet} sheet
      */
     clearErrors(sheet) {
-        sheet.getRange(1, 2, sheet.getLastRow()).clearContent();
+        sheet.getRange(1, this.outputColumn, sheet.getLastRow()).clearContent();
     }
 
 
@@ -613,6 +710,23 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             true);
     }
 
+    getSheet() {
+        //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+        let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+        if (!sheet) {
+            // If there's a single sheet, it's probably a new install, so we can rename it.
+            const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+            if (sheets.length === 1) {
+                if (sheets[0].getLastRow() === 0) {
+                    // There's no data. Just rename // ttt2 There might be formatting
+                    sheets[0].setName(this.sheetName);
+                }
+            }
+        }
+        return super.getSheet();
+    }
+
+
     /**
      * @param {boolean} showConfirmation
      * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
@@ -620,17 +734,10 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     setTimes(showConfirmation) {
         const sheet = this.getSheet();
 
-        //@param {SpreadsheetApp.Sheet} sheet
-        //@param {IdInfo[]} idInfos
         let idInfos = this.getProcessedInputData(sheet);
         if (!idInfos) {
             return false;
         }
-
-        // if (!idInfos.length) {
-        //     this.showMessage('No files were specified, but at least one is needed');
-        //     return false;
-        // }
 
         if (showConfirmation && !showConfirmYesNoBox(`Really set the dates for ${idInfos.length ? 'the specified' : 'all the'} folders?`)) {
             return false;
@@ -656,93 +763,104 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         logS(sheet, '------------------ Update finished ------------------');
         return true;
     }
+}
 
-    /**
-     * Gathers and validates the data. Mainly makes sure that files / folders exist and there are no duplicates.
-     *
-     * @param {SpreadsheetApp.Sheet} sheet
-     * @returns {(IdInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
-     */
-    getProcessedInputData(sheet) {
 
-        const vld = this.validateNamesAndIds(sheet);
-        if (!vld) {
-            return null;
-        }
 
-        //!!! We want to update the UI here, and not after the confirmation, as it's important to see what the IDs point
-        // to before confirmation. //ttt1 However, the UI doesn't change until after the confirmation.
-        if (!this.updateUiAfterValidation(sheet, vld.rangeInfo, vld.inputNameInfos, vld.inputIdInfos)) {
-            // Range couldn't be computed, even though a few lines above it could. Perhaps the user deleted a label.
-            return null;
-        }
+const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
+const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
 
-        if (vld.hasErrors) {
-            this.showMessage(sheet, 'Found some errors, which need to be resolved before proceeding with setting the times');
-            return null;
-        }
-
-        /** @type {IdInfo[]} */
-        const idInfosArr = Array.from(vld.idInfosMap.values());
-        return idInfosArr;
+class DriveFileProcessor extends DriveObjectProcessor {
+    constructor() {
+        super(FILES_SHEET_NAME,
+            FILE_NAME_START,
+            FILE_ID_START,
+            false);
     }
 
-}
-// const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
-// const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
+    /**
+     * @param {boolean} showConfirmation
+     * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+     */
+    setTimes(showConfirmation) {
+        const sheet = this.getSheet();
 
+        let idInfos = this.getProcessedInputData(sheet);
+        if (!idInfos) {
+            return false;
+        }
+
+        if (!idInfos.length) {
+            this.showMessage(sheet, 'No files were specified, but at least one is needed');
+            return false;
+        }
+
+        if (showConfirmation && !showConfirmYesNoBox(`Really set the dates for the specified files?`)) {
+            return false;
+        }
+
+        logS(sheet, '------------------ Starting update ------------------');
+        const timeSetter = new TimeSetter();
+        for (const idInfo of idInfos) {
+            timeSetter.processFile(sheet, idInfo);
+        }
+        logS(sheet, '------------------ Update finished ------------------');
+        return true;
+    }
+}
 
 const driveFolderProcessor = new DriveFolderProcessor();
+const driveFileProcessor = new DriveFileProcessor();
 
-
-/**
- * @returns {SpreadsheetApp.Sheet}
- */
-function getFilesSheet() {
-    //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
-    return SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FILES_SHEET_NAME);
-}
 
 
 /**
  * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
  */
 function setupSheets() {
-    if (!driveFolderProcessor.getSheet()) {
-        // If there's a single sheet, it's probably a new install, so we can rename it.
-        const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
-        if (sheets.length === 1) {
-            if (sheets[0].getLastRow() === 0) {
-                // There's no data. Just rename // ttt2 There might be formatting
-                sheets[0].setName(FOLDERS_SHEET_NAME);
-            }
-        }
-    }
-
-    if (!driveFolderProcessor.getSheet()) {
-        const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
-        sheet.setName(FOLDERS_SHEET_NAME);
-    }
-    /*if (!getFilesSheet()) {
-        const sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
-        sheet.setName(FILES_SHEET_NAME);
-    }*/
-
     const folderSheet = driveFolderProcessor.getSheet();
-    folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
-    // works when starting from the Sheet menu. At least it doesn't crash
+    const fileSheetExists = driveFileProcessor.sheetExists();
+    if (!fileSheetExists) {
+        driveFileProcessor.getSheet();
+    }
 
-    driveFolderProcessor.setupSheet(folderSheet);
+    driveFolderProcessor.setupSheet();
+    driveFileProcessor.setupSheet();
+
+    if (!fileSheetExists) {
+        // After the sheets have been created, we want to leave the active one as the user set it. At creation,
+        // we want to activate folders, as it's what the user probably wants.
+        folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
+        // works when starting from the Sheet menu. At least it doesn't crash
+    }
 }
 
 
+function menuValidateFolders() {
+    return driveFolderProcessor.validateInput();
+}
+
 /**
- *
  * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
  */
 function menuSetTimesFolders() {
     return driveFolderProcessor.setTimes(true);
 }
+
+
+function menuValidateFiles() {
+    return driveFileProcessor.validateInput();
+}
+
+/**
+ * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ */
+function menuSetTimesFiles() {
+    return driveFileProcessor.setTimes(true);
+}
+
+
+
 
 // noinspection JSUnusedGlobalSymbols
 /**
@@ -850,6 +968,15 @@ class TimeSetter {
         this.processed.set(idInfo.id, res);
         return res;
     }
+
+    /**
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {IdInfo} idInfo
+     * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
+     */
+    processFile(sheet, idInfo) {
+        //ttt0:
+    }
 }
 
 
@@ -931,7 +1058,7 @@ function logS(sheet, message) {
     try {
         const row = sheet.getLastRow() + 1;
         const range = sheet.getRange(row, 1);
-        range.setValue(`${formatDate(new Date())} ${message}`);
+        range.setValue(`${formatLogDate(new Date())} ${message}`);
         sheet.getRange(row, 1, 1, 2).setBackground(LOG_BG);
     } catch (err) {
         console.log(`Failed to log in UI "${message}". "${err}"`);
@@ -956,7 +1083,7 @@ function showConfirmYesNoBox(message) {
  * @param {Date} date
  * @returns {string}
  */
-function formatDate(date) {
+function formatLogDate(date) {
     const main = date.toLocaleDateString('ro-RO', {
         day: '2-digit',
         hour: '2-digit',
@@ -965,6 +1092,15 @@ function formatDate(date) {
     }).substring(4);
     const millis = String(date.getMilliseconds()).padStart(3, '0');
     return `${main}.${millis}`;
+}
+
+/**
+ * Formats a date using HH:mm:ss.SSS (SSS is for milliseconds)
+ * @param {Date} date
+ * @returns {string}
+ */
+function formatShortDate(date) {
+    return `${date.toISOString().replace('T', ' ').replace(/\..*/, '')} UTC`;
 }
 
 //ttt1 Perhaps have a "dry-run"
