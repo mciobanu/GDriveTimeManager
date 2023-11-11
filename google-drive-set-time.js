@@ -1143,7 +1143,10 @@ function formatLogDate(date) {
  * @returns {string}
  */
 function isoDateToShort(isoDate) {
-    return `${isoDate.replace('T', ' ').replace(/\..*/, '')} UTC`;
+    return `${isoDate
+        .replace('T', ' ')
+        .replace(/\..*/, '')
+        .replace(/:00$/, '')} UTC`;
 }
 
 //ttt1 Perhaps have a "dry-run"
