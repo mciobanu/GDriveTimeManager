@@ -862,26 +862,23 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
         this.log(sheet, '------------------------------------');
         files.sort((l1, l2) => (l1.path + l1.name).localeCompare(l2.path + l2.name));
-        for (const file of files) {
-            const row = sheet.getLastRow() + 1;
-            const arr = [file.path, file.name, file.time, file.size, file.id, file.mime];
-            for (let i = 0; i < arr.length; i += 1) {
-                const range = sheet.getRange(row, i + 1);
-                let val = arr[i];
-                if (i === 2) {
-                    val = new Date(arr[i]);  //ttt1: See what to do about this. It's supposed to convert to
-                    // a sensible string, based on the spreadsheet and the browser settings, but it shows the date and
-                    // no time
-                }
-                if (i === 2) {
-                    range.setNumberFormat(LIST_DATETIME_FMT);
-                } else if (i !== 3) { //ttt2: hardcoded
-                    range.setNumberFormat(PLAIN_TEXT_FMT);
-                }
-                range
-                    .setValue(val)
-                    .setBackground(LOG_BG);
+
+        if (files.length) {
+            const rows = [];
+            const rowFormats = [PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, LIST_DATETIME_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT];
+            //ttt1: See about date formatting. With auto-conversion, it's supposed to convert to a sensible
+            // string, based on the spreadsheet and the browser settings, but it shows the date and no time
+            const rowFormatsArr = [];
+            for (const file of files) {
+                const row = [file.path, file.name, new Date(file.time), file.size, file.id, file.mime];
+                rows.push(row);
+                rowFormatsArr.push(rowFormats);
             }
+            const range = sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6);
+            range.setNumberFormats(rowFormatsArr);
+            range.setValues(rows).setBackground(LOG_BG);
+        } else {
+            this.log(sheet, 'No files were found');
         }
         this.log(sheet, '------------------ Listing finished ------------------');
     }
