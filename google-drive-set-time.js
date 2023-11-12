@@ -972,96 +972,6 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     }
 }
 
-/**
- * @typedef {(function(GoogleAppsScript.Drive.Schema.File, IdInfo, any):any|null)} traverseCallbackFolder
- * @typedef {(function(GoogleAppsScript.Drive.Schema.File, IdInfo):any|null)} traverseCallbackNonFolder
- * @typedef {(function(IdInfo, any)|null)} traverseCallbackErr
- */
-
-
-/**
- * Starting from a folder, it finds its children and invokes callbacks on them. For folders, it also calls itself.
- * Keeps track of what was processed thus far, to prevent processing a folder multiple times.
- *
- * @param {SimpleLogger} log
- * @param {IdInfo} idInfo for the start folder; the "id" field must be correct; the "path" field is used to compute paths of sub-folders
- * @param {traverseCallbackFolder} onFolder
- * @param {traverseCallbackNonFolder} onFile
- * @param {traverseCallbackNonFolder} onShortcut
- * @param {traverseCallbackErr} onError
- * @param {Map<string, any>} exploredFolders used to avoid passing several times through the same folder (e.g. when the user asked for a folder and an ancestor)
- * @param {any} initialValue
- * @returns {any} usually the same type as initialValue; as we go through the folders, we might compute values and do
- * something with them (get max, add, ...); this is how we pass that computed value from a subfolder to the current
- * folder; it is also possible to not need to compute anything, and then we can use "undefined"
- */
-function recTraverseFolder(
-    log,
-    idInfo,
-    onFolder,
-    onFile,
-    onShortcut,
-    onError,
-    exploredFolders,
-    initialValue) {
-
-    if (exploredFolders.has(idInfo.id)) {
-        log(`Already processed ${idInfo.path} [${idInfo.id}]`)
-        return exploredFolders.get(idInfo.id);
-    }
-
-    const query = `"${idInfo.id}" in parents and trashed = false`;  //ttt2: Perhaps improve. An alternative is
-    // to not recurse here, but have onFolder make another call, and then the query can be anything
-
-    let res = initialValue;
-    let pageToken = null;
-
-    do {
-        try {
-            const items = Drive.Files.list({
-                q: query,
-                maxResults: 100,
-                pageToken,
-            });
-
-            if (!items.items || items.items.length === 0) {
-                break;
-            }
-            for (let i = 0; i < items.items.length; i++) {
-                const item = items.items[i];
-                /** @type {IdInfo}} */
-                const childIdInfo = {
-                    id: item.id,
-                    modifiedDate: item.modifiedDate,
-                    multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
-                    path: `${idInfo.path}/${item.title}`,
-                    ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
-                    // may return undefined, while the field is just boolean
-                };
-                if (item.mimeType === FOLDER_MIME) {
-                    let subfolderValue = recTraverseFolder(log, childIdInfo, onFolder, onFile, onShortcut, onError, exploredFolders, initialValue);
-                    onFolder && (res = onFolder(item, childIdInfo, subfolderValue));
-                } else {
-                    if (item.mimeType === SHORTCUT_MIME) {
-                        onShortcut && (res = onShortcut(item, childIdInfo));
-                    } else {
-                        onFile && (res = onFile(item, childIdInfo));
-                    }
-                }
-            }
-            pageToken = items.nextPageToken;
-        } catch (err) {
-            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
-            log(msg);
-            onError && onError(idInfo, err);
-            //ttt2 improve
-        }
-    } while (pageToken);
-
-    exploredFolders.set(idInfo.id, res);
-    return res;
-}
-
 
 /**
  * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} ListCallback
@@ -1088,6 +998,8 @@ function listFolder(
     onFile,
     onShortcut,
     onError) {
+
+    //log(`>< listFolder(${query})`);
 
     let pageToken = null;
 
@@ -1269,30 +1181,32 @@ class TimeSetter {
      * @returns {string} when the folder was last modified, in the format '2000-01-01T10:00:00.000Z'
      */
     processFolder(idInfo, log) {
+        //log(`>> processFolder(${JSON.stringify(idInfo)})`);
         const existing = this.processed.get(idInfo.id);
         if (existing) {
+            log(`Already processed ${idInfo.path} [${idInfo.id}], got: ${existing}`);
             return existing;
         }
 
-        const setTime = (/** IdInfo */ idInfo, /** string */ time) => {
-            if (time !== idInfo.modifiedDate) {
-                if (idInfo.path) {
+        const setTime = (/** IdInfo */ idInfo2, /** string */ time) => { //ttt0: rename idInfo2
+            if (time !== idInfo2.modifiedDate) {
+                if (idInfo2.path) {
                     // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
                     try {
-                        if (idInfo.ownedByMe) {
-                            log(`Setting time to ${time} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
-                            updateModifiedTime(idInfo.id, time);
+                        if (idInfo2.ownedByMe) {
+                            log(`Setting time to ${time} for ${idInfo2.path}. It was ${idInfo2.modifiedDate}`);
+                            updateModifiedTime(idInfo2.id, time);
                         } else {
-                            log(`Not updating ${idInfo.path}, which has a different owner`);
+                            log(`Not updating ${idInfo2.path}, which has a different owner`);
                         }
                     } catch (err) {
-                        const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
+                        const msg = `Failed to update time for folder '${idInfo2.path}' [${idInfo2.id}]. ${err}`;
                         log(msg);
                         //ttt2 improve
                     }
                 }
             } else {
-                log(`Time ${time} is already correct for ${idInfo.path}`);
+                log(`Time ${time} is already correct for ${idInfo2.path}`);
             }
         }
 
@@ -1305,27 +1219,40 @@ class TimeSetter {
         }
 
         /** @type {Map<string, any>} */
-        const exploredFolders = new Map();
+        //const exploredFolders = new Map();
 
 
-        /** @type {traverseCallbackFolder} */
-        const onFolder = (subfolder, subfolderIdInfo, subfolderTime) => {
+        /** @type {ListCallback} */
+        const onFolder = (folder) => {
+            const subfolderIdInfo = {
+                id: folder.id,
+                modifiedDate: folder.modifiedDate,
+                multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
+                path: `${idInfo.path}/${folder.title}`,
+                ownedByMe: getOwnedByMe(folder),   //ttt1: See why there's no warning here, as getOwnedByMe()
+                // may return undefined, while the field is just boolean
+            };
+            //log(`>< onFolder(${JSON.stringify(subfolderIdInfo)})`);
+
+            const subfolderTime = this.processFolder(subfolderIdInfo, log);
             processTime(subfolderTime);
-            setTime(subfolderIdInfo, subfolderTime);
+            //setTime(subfolderIdInfo, subfolderTime);
         }
 
-        /** @type {traverseCallbackNonFolder} */
+        /** @type {ListCallback} */
         const onFile = (file) => {
+            //log(`>< onFile(${file.title}, ${file.modifiedDate})`);
             processTime(file.modifiedDate);
         };
 
-        /** @type {traverseCallbackNonFolder} */
-        const onShortcut = (shortcut, shortcutIdInfo) => {
-            log(`Ignoring shortcut ${shortcutIdInfo.path}/${shortcut.title}`);
+        /** @type {ListCallback} */
+        const onShortcut = (shortcut) => {
+            //log(`>< onShortcut(${shortcut.title})`);
+            log(`Ignoring shortcut ${idInfo.path}/${shortcut.title}`);
         };
 
-        /** @type {traverseCallbackErr} */
-        const onError = (idInfo, err) => {
+        /** @type {ListCallbackErr} */
+        const onError = (err) => {
             const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
             // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
             // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
@@ -1333,29 +1260,12 @@ class TimeSetter {
             log(msg);
         };
 
-        recTraverseFolder(log, idInfo, onFolder, onFile, onShortcut, onError, exploredFolders, SMALLEST_TIME);
+        const query = `"${idInfo.id}" in parents and trashed = false`;
+        listFolder(query, log, onFolder, onFile, onShortcut, onError);
 
-        /*if (res !== idInfo.modifiedDate) {
-            if (idInfo.path) {
-                // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
-                try {
-                    if (idInfo.ownedByMe) {
-                        log(`Setting time to ${res} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
-                        updateModifiedTime(idInfo.id, res);
-                    } else {
-                        log(`Not updating ${idInfo.path}, which has a different owner`);
-                    }
-                } catch (err) {
-                    const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
-                    log(msg);
-                    //ttt2 improve
-                }
-            }
-        } else {
-            log(`Time ${res} is already correct for ${idInfo.path}`);
-        }*/
         setTime(idInfo, res);
         this.processed.set(idInfo.id, res);
+        //log(`<< processFolder(${JSON.stringify(idInfo)}): ${res}`);
         return res;
     }
 
