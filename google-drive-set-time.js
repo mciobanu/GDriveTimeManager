@@ -356,7 +356,30 @@ class DriveObjectProcessor {
         }
 
         /** @type {Map<string, IdInfo>} */
-        const idInfosMap = new Map();
+        const idInfosMap = new Map();  //ttt1: IDEA doesn't complain if "new Set()" is used
+        // instead of "new Map()". See if anything can be done. Bard had some suggestions after it was told that
+        // the issue is in IDEA, but not sure exactly what to do. The suggestion is to use a ".d.ts" file, in which
+        // to put "declare type Set<T> = Iterable<T>; declare type Map<K, V> = Iterable<[K, V]>;", to put the file
+        // in the root directory of the project, and to reference it in jsconfig.json, and maybe restart IDEA. These
+        // didn't help, but maybe a small change would make it work. (This is supposed to work because IDEA uses
+        // TSServer. Also, some other sites mentioned .d.ts files in the context of JSDoc and JavaScript validation.)
+        // Something "happens", though: After removing jsconfig.json (and restarting IDEA, not sure if it mattered),
+        // the .d.ts file had syntax errors, which went away when jsconfig.json was restored. Its content:
+        // {
+        //   "compilerOptions": {
+        //     "module": "commonjs",
+        //     "target": "es6",
+        //     "files": [
+        //       "types-support.d.ts"
+        //     ]
+        //   },
+        //   "exclude": ["node_modules"]
+        // }
+        // Even though there's no warning, auto-completion suggests Map after new.
+        // Also, not sure if it's related, but there are no complaints when there are 3 or 1 generic arguments.
+        //
+        // This might help: https://dev.to/artxe2/how-to-set-up-jsdoc-for-npm-packages-1jm1
+
         const inputNames = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.namesBegin + 1, rangeInfo.namesEnd);
         const inputNameInfos = this.validateNames(sheet, inputNames, idInfosMap);
         const inputIds = DriveObjectProcessor.getColumnData(sheet, 1, rangeInfo.idsBegin + 1, rangeInfo.idsEnd);
