@@ -526,29 +526,13 @@ class DriveObjectProcessor {
 
             const query = `title = '${name}' and trashed = false`;
 
-
             /** @type {DriveQueryCallback} */
-            const onFileOrFolder = (driveObj) => {
-                /** @type IdInfo */
-                let idInfo;
-                if (this.mimeTypeMatches(driveObj)) {
-                    idInfo = getIdInfo(driveObj.id);
+            const onAnything = (driveObj) => {  //!!! Use onAnything() to call idInfoFromDriveObj(), which does all that's needed
+                /** @type {(IdInfo|undefined)} */
+                const idInfo = this.idInfoFromDriveObj(sheet, driveObj, idInfosMap, errors);
+                if (idInfo) {
                     idInfos.push(idInfo);
-                    const existing = idInfosMap.get(idInfo.id);
-                    if (existing) {
-                        errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
-                    } else {
-                        idInfosMap.set(idInfo.id, idInfo);
-                    }
-                } else {
-                    // This is not an error, but we'd still like to log something
-                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${driveObj.title} [${driveObj.id}]`);
                 }
-            };
-
-            /** @type {DriveQueryCallback} */
-            const onShortcut = (shortcut) => {
-                this.log(sheet, `Ignoring shortcut ${shortcut.title} [${shortcut.id}]`);
             };
 
             /** @type {DriveQueryErrCallback} */
@@ -557,7 +541,7 @@ class DriveObjectProcessor {
                 this.log(sheet, msg);
             };
 
-            runDriveQuery(query, this.getLog(sheet), onFileOrFolder, onFileOrFolder, onShortcut, onError);
+            runDriveQuery(query, this.getLog(sheet), onAnything, onAnything, onAnything, onError);
 
             const cnt = idInfos.length;
             if (!cnt) {
@@ -593,27 +577,13 @@ class DriveObjectProcessor {
             if (!id) {
                 continue;
             }
-            /** @type string[] */
+            /** @type {string[]} */
             const errors = [];
-            /** @type IdInfo */
+            /** @type {(IdInfo|undefined)} */
             let idInfo;
             try {
                 const driveObj = Drive.Files.get(id);
-
-                if (this.mimeTypeMatches(driveObj)) {  //ttt1: duplicate code with names
-                    idInfo = getIdInfo(driveObj.id);
-                    const existing = idInfosMap.get(idInfo.id);
-                    if (existing) {
-                        errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
-                    } else {
-                        idInfosMap.set(idInfo.id, idInfo);
-                    }
-                } else if (driveObj.mimeType !== SHORTCUT_MIME) {
-                    // This is not an error, but we'd still like to log something
-                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${driveObj.title} [${driveObj.id}]`);
-                } else {
-                    this.log(sheet, `Ignoring shortcut ${driveObj.title} [${driveObj.id}]`);
-                }
+                idInfo = this.idInfoFromDriveObj(sheet, driveObj, idInfosMap, errors);
             } catch (err) {
                 errors.push(`${this.objectLabel} with ID ${id} not found`);
             }
@@ -626,6 +596,36 @@ class DriveObjectProcessor {
                 idInfos,
                 errors,
             };
+        }
+        return res;
+    }
+
+
+    /**
+     * Shared processing for folders and IDs, for matching / non-matching MIME type
+     *
+     * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+     * @param {GoogleAppsScript.Drive.Schema.File} driveObj
+     * @param {Map<string, IdInfo>} idInfosMap
+     * @param {string[]} errors
+     * @returns {(IdInfo|undefined)}
+     */
+    idInfoFromDriveObj(sheet, driveObj, idInfosMap, errors) {
+        /** @type IdInfo */
+        let res;
+        if (this.mimeTypeMatches(driveObj)) {
+            res = getIdInfo(driveObj.id);
+            const existing = idInfosMap.get(res.id);
+            if (existing) {
+                errors.push(`${this.objectLabel} with the ID ${res.id} already added`);
+            } else {
+                idInfosMap.set(res.id, res);
+            }
+        } else if (driveObj.mimeType !== SHORTCUT_MIME) {
+            // This is not an error, but we'd still like to log something
+            this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${driveObj.title} [${driveObj.id}]`);
+        } else {
+            this.log(sheet, `Ignoring shortcut ${driveObj.title} [${driveObj.id}]`);
         }
         return res;
     }
