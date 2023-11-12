@@ -503,7 +503,7 @@ class DriveObjectProcessor {
             const query = `title = '${name}' and trashed = false`;
 
 
-            /** @type {ListCallback} */
+            /** @type {DriveQueryCallback} */
             const onFileOrFolder = (driveObj) => {
                 /** @type IdInfo */
                 let idInfo;
@@ -522,12 +522,12 @@ class DriveObjectProcessor {
                 }
             };
 
-            /** @type {ListCallback} */
+            /** @type {DriveQueryCallback} */
             const onShortcut = (shortcut) => {
                 this.log(sheet, `Ignoring shortcut ${shortcut.title} [${shortcut.id}]`);
             };
 
-            /** @type {ListCallbackErr} */
+            /** @type {DriveQueryErrCallback} */
             const onError = (err) => {
                 const msg = `Failed to process '${name}'. ${err}`;
                 this.log(sheet, msg);
@@ -817,7 +817,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
     }
 
     /**
-     * @typedef ListInfo
+     * @typedef FileInfo
      *
      * @property {string} name
      * @property {string} id
@@ -845,10 +845,10 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         }
 
         this.log(sheet, '------------------ Starting listing ------------------');
-        // /** @type {Map<string, ListInfo>} */
+        // /** @type {Map<string, FileInfo>} */
         // const filesMap = new Map();  //ttt1: Not sure how to approach the issue of multiple paths to the same file
-        /** @type {ListInfo[]} */
-        const files = [];
+        /** @type {FileInfo[]} */
+        const fileInfos = [];
 
         /** @type {Set<string>} */
         const exploredFolderIds = new Set();
@@ -857,20 +857,20 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
             const idInfo = inputInfo.idInfos[0]; // The assumption is that
             // it got here, there is exactly 1 ID for each name and that all IDs are valid
-            this.listFilesHlp(idInfo.id, idInfo.path, sheet, files, exploredFolderIds);
+            this.listFilesHlp(idInfo.id, idInfo.path, sheet, fileInfos, exploredFolderIds);
         }
 
         this.log(sheet, '------------------------------------');
-        files.sort((l1, l2) => (l1.path + l1.name).localeCompare(l2.path + l2.name));
+        fileInfos.sort((fi1, fi2) => (fi1.path + fi1.name).localeCompare(fi2.path + fi2.name));
 
-        if (files.length) {
+        if (fileInfos.length) {
             const rows = [];
             const rowFormats = [PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, LIST_DATETIME_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT];
             //ttt1: See about date formatting. With auto-conversion, it's supposed to convert to a sensible
             // string, based on the spreadsheet and the browser settings, but it shows the date and no time
             const rowFormatsArr = [];
-            for (const file of files) {
-                const row = [file.path, file.name, new Date(file.time), file.size, file.id, file.mime];
+            for (const fileInfo of fileInfos) {
+                const row = [fileInfo.path, fileInfo.name, new Date(fileInfo.time), fileInfo.size, fileInfo.id, fileInfo.mime];
                 rows.push(row);
                 rowFormatsArr.push(rowFormats);
             }
@@ -888,23 +888,23 @@ class DriveFolderProcessor extends DriveObjectProcessor {
      * @param {string} id
      * @param {string} path
      * @param {SpreadsheetApp.Sheet} sheet
-     * @param {ListInfo[]} files
+     * @param {FileInfo[]} fileInfos
      * @param {Set<string>} exploredFolderIds
      */
-    listFilesHlp(id, path, sheet, files, exploredFolderIds) {
-        /** @type {ListCallback} */
+    listFilesHlp(id, path, sheet, fileInfos, exploredFolderIds) {
+        /** @type {DriveQueryCallback} */
         const onFolder = (folder) => {
             if (exploredFolderIds.has(folder.id)) {
                 this.log(sheet, `Already processed ${path} [${id}]`);
                 return;
             }
             exploredFolderIds.add(folder.id);
-            this.listFilesHlp(folder.id, `${path}/${folder.title}`, sheet, files, exploredFolderIds);
+            this.listFilesHlp(folder.id, `${path}/${folder.title}`, sheet, fileInfos, exploredFolderIds);
         };
 
-        /** @type {ListCallback} */
+        /** @type {DriveQueryCallback} */
         const onFile = (file) => {
-            files.push({
+            fileInfos.push({
                 id: file.id,
                 name: file.title,
                 path: path, // the path to the root is an empty string, so as paths don't end with a "/".  //ttt0: Review, perhaps always end, perhaps have root as an exception
@@ -914,12 +914,12 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             });
         };
 
-        /** @type {ListCallback} */
+        /** @type {DriveQueryCallback} */
         const onShortcut = (shortcut) => {
             this.log(sheet, `Ignoring shortcut ${path}/${shortcut.title}`);
         };
 
-        /** @type {ListCallbackErr} */
+        /** @type {DriveQueryErrCallback} */
         const onError = (err) => {
             const msg = `Failed to process folder '${path}' [${id}]. ${err}`;
             this.log(sheet, msg);
@@ -966,8 +966,8 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
 
 /**
- * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} ListCallback
- * @typedef {(function(any)|null)} ListCallbackErr
+ * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} DriveQueryCallback
+ * @typedef {(function(any)|null)} DriveQueryErrCallback
  */
 
 
@@ -978,10 +978,10 @@ class DriveFolderProcessor extends DriveObjectProcessor {
  *
  * @param {string} query
  * @param {SimpleLogger} log
- * @param {ListCallback} onFolder
- * @param {ListCallback} onFile
- * @param {ListCallback} onShortcut
- * @param {ListCallbackErr} onError
+ * @param {DriveQueryCallback} onFolder
+ * @param {DriveQueryCallback} onFile
+ * @param {DriveQueryCallback} onShortcut
+ * @param {DriveQueryErrCallback} onError
  */
 function runDriveQuery(
     query,
@@ -1194,7 +1194,7 @@ class TimeSetter {
         //const exploredFolders = new Map();
 
 
-        /** @type {ListCallback} */
+        /** @type {DriveQueryCallback} */
         const onFolder = (folder) => {
             const subfolderIdInfo = {
                 id: folder.id,
@@ -1210,19 +1210,19 @@ class TimeSetter {
             processTime(subfolderTime);
         }
 
-        /** @type {ListCallback} */
+        /** @type {DriveQueryCallback} */
         const onFile = (file) => {
             //log(`>< onFile(${file.title}, ${file.modifiedDate})`);
             processTime(file.modifiedDate);
         };
 
-        /** @type {ListCallback} */
+        /** @type {DriveQueryCallback} */
         const onShortcut = (shortcut) => {
             //log(`>< onShortcut(${shortcut.title})`);
             log(`Ignoring shortcut ${idInfo.path}/${shortcut.title}`);
         };
 
-        /** @type {ListCallbackErr} */
+        /** @type {DriveQueryErrCallback} */
         const onError = (err) => {
             const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
             // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
