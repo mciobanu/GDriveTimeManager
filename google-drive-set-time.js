@@ -871,14 +871,14 @@ class DriveFolderProcessor extends DriveObjectProcessor {
                     // a sensible string, based on the spreadsheet and the browser settings, but it shows the date and
                     // no time
                 }
-                range
-                    .setValue(val)
-                    .setBackground(LOG_BG);
                 if (i === 2) {
                     range.setNumberFormat(LIST_DATETIME_FMT);
                 } else if (i !== 3) { //ttt2: hardcoded
                     range.setNumberFormat(PLAIN_TEXT_FMT);
                 }
+                range
+                    .setValue(val)
+                    .setBackground(LOG_BG);
             }
         }
         this.log(sheet, '------------------ Listing finished ------------------');
