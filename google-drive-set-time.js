@@ -502,11 +502,11 @@ class DriveObjectProcessor {
 
 
             /** @type {ListCallback} */
-            const onFileOrFolder = (item) => {
+            const onFileOrFolder = (driveObj) => {
                 /** @type IdInfo */
                 let idInfo;
-                if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== FOLDER_MIME)) {
-                    idInfo = getIdInfo(item.id);
+                if ((this.expectFolders && driveObj.mimeType === FOLDER_MIME) || (!this.expectFolders && driveObj.mimeType !== FOLDER_MIME)) {
+                    idInfo = getIdInfo(driveObj.id);
                     idInfos.push(idInfo);
                     const existing = idInfosMap.get(idInfo.id);
                     if (existing) {
@@ -516,7 +516,7 @@ class DriveObjectProcessor {
                     }
                 } else {
                     // This is not an error, but we'd still like to log something
-                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
+                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${driveObj.title} [${driveObj.id}]`);
                 }
             };
 
@@ -572,21 +572,21 @@ class DriveObjectProcessor {
             /** @type IdInfo */
             let idInfo;
             try {
-                const item = Drive.Files.get(id);
+                const driveObj = Drive.Files.get(id);
 
-                if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME && item.mimeType !== FOLDER_MIME)) {  //ttt1: duplicate code with names
-                    idInfo = getIdInfo(item.id);
+                if ((this.expectFolders && driveObj.mimeType === FOLDER_MIME) || (!this.expectFolders && driveObj.mimeType !== SHORTCUT_MIME && driveObj.mimeType !== FOLDER_MIME)) {  //ttt1: duplicate code with names
+                    idInfo = getIdInfo(driveObj.id);
                     const existing = idInfosMap.get(idInfo.id);
                     if (existing) {
                         errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
                     } else {
                         idInfosMap.set(idInfo.id, idInfo);
                     }
-                } else if (item.mimeType !== SHORTCUT_MIME) {
+                } else if (driveObj.mimeType !== SHORTCUT_MIME) {
                     // This is not an error, but we'd still like to log something
-                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
+                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${driveObj.title} [${driveObj.id}]`);
                 } else {
-                    this.log(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
+                    this.log(sheet, `Ignoring shortcut ${driveObj.title} [${driveObj.id}]`);
                 }
             } catch (err) {
                 errors.push(`${this.objectLabel} with ID ${id} not found`);
@@ -1283,10 +1283,10 @@ class TimeSetter {
 
 /**
  * @param {string} id
- * @param {string} itemTime format: '2020-05-05T10:00:00.000Z'
+ * @param {string} newTime format: '2020-05-05T10:00:00.000Z'
  */
-function updateModifiedTime(id, itemTime) {
-    const body = {modifiedDate: itemTime}; // type File: https://developers.google.com/drive/api/reference/rest/v2/files#File
+function updateModifiedTime(id, newTime) {
+    const body = {modifiedDate: newTime}; // type File: https://developers.google.com/drive/api/reference/rest/v2/files#File
     const blob = null;
     const optionalArgs = {setModifiedDate: true}; // https://developers.google.com/drive/api/reference/rest/v2/files/update#query-parameters
     Drive.Files.update(body, id, blob, optionalArgs); // This fails silently for non-owners, but we check for that
@@ -1300,8 +1300,8 @@ function updateModifiedTime(id, itemTime) {
  * @returns {IdInfo}
  */
 function getIdInfo(id) {
-    const item = Drive.Files.get(id)
-    let parents = item.parents;
+    const driveObj = Drive.Files.get(id)
+    let parents = driveObj.parents;
     let parentCnt = parents.length;
     if (parentCnt === 0) {
         // It's a (usually "the") root
@@ -1309,18 +1309,18 @@ function getIdInfo(id) {
             id,
             path: '',
             multiplePaths: false,
-            modifiedDate: item.modifiedDate,
-            ownedByMe: item.ownedByMe, // doesn't matter
+            modifiedDate: driveObj.modifiedDate,
+            ownedByMe: driveObj.ownedByMe, // doesn't matter
         };
     }
     let parent = parents[0];
     let parentInfo = getIdInfo(parent.id);
     return {
         id,
-        path: `${parentInfo.path}/${item.title}`,
+        path: `${parentInfo.path}/${driveObj.title}`,
         multiplePaths: parentInfo.multiplePaths || (parentCnt > 1),
-        modifiedDate: item.modifiedDate,
-        ownedByMe: getOwnedByMe(item),
+        modifiedDate: driveObj.modifiedDate,
+        ownedByMe: getOwnedByMe(driveObj),
     };
 }
 
