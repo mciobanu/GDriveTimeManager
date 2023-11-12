@@ -206,9 +206,9 @@ class DriveObjectProcessor {
      * @param {string} nameLabelStart
      * @param {string} idLabelStart
      * @param {string[]} columnLabels
-     * @param {boolean} expectFolders whether we want folders or files; (enum would be nicer, but JS doesn't have them)  //ttt0: find better name
+     * @param {boolean} usedForFolders whether we want folders or files; (enum would be nicer, but JS doesn't have them)
      */
-    constructor(sheetName, nameLabelStart, idLabelStart, columnLabels, expectFolders) {
+    constructor(sheetName, nameLabelStart, idLabelStart, columnLabels, usedForFolders) {
         this.sheetName = sheetName;
         this.nameLabelStart = nameLabelStart;
         this.idLabelStart = idLabelStart;
@@ -216,15 +216,14 @@ class DriveObjectProcessor {
         this.logLabelStart = LOG_START;
         this.rangeNotFoundErr = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
             + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt1 perhaps
-        // make most members private, but not sure it's worth it, and V8 doesn't seem to support it
+        // make most members private, but not sure that it's worth it, and V8 doesn't seem to support it
 
-        this.expectFolders = expectFolders;
-        this.objectLabel = expectFolders ? 'Folder' : 'File';  //ttt1: Review idea of computing these here vs. passing
+        this.objectLabel = usedForFolders ? 'Folder' : 'File';  //ttt1: Review idea of computing these here vs. passing
         // them as params. Adds coupling but cuts param count.
-        this.objectLabelLc = expectFolders ? 'folder' : 'file';
-        this.reverseObjectLabelLc = expectFolders ? 'file' : 'folder';
-        this.outputColumn = expectFolders ? 2 : 3;
-        this.dateColumn = expectFolders ? 0 : 2;
+        this.objectLabelLc = usedForFolders ? 'folder' : 'file';
+        this.reverseObjectLabelLc = usedForFolders ? 'file' : 'folder';
+        this.outputColumn = usedForFolders ? 2 : 3;
+        this.dateColumn = usedForFolders ? 0 : 2;
     }
 
     /**
@@ -532,7 +531,7 @@ class DriveObjectProcessor {
             const onFileOrFolder = (driveObj) => {
                 /** @type IdInfo */
                 let idInfo;
-                if ((this.expectFolders && driveObj.mimeType === FOLDER_MIME) || (!this.expectFolders && driveObj.mimeType !== FOLDER_MIME)) {
+                if (this.mimeTypeMatches(driveObj)) {
                     idInfo = getIdInfo(driveObj.id);
                     idInfos.push(idInfo);
                     const existing = idInfosMap.get(idInfo.id);
@@ -577,7 +576,7 @@ class DriveObjectProcessor {
 
     /**
      * Returns an array the size of up to the "names" section without the title with the type InputInfo
-     * For empty IDs, the corresponding entry is unedfined (or missing, at the end of the array).
+     * For empty IDs, the corresponding entry is undefined (or missing, at the end of the array).
      *
      * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
      * @param {string[]} ids
@@ -601,7 +600,7 @@ class DriveObjectProcessor {
             try {
                 const driveObj = Drive.Files.get(id);
 
-                if ((this.expectFolders && driveObj.mimeType === FOLDER_MIME) || (!this.expectFolders && driveObj.mimeType !== SHORTCUT_MIME && driveObj.mimeType !== FOLDER_MIME)) {  //ttt1: duplicate code with names
+                if (this.mimeTypeMatches(driveObj)) {  //ttt1: duplicate code with names
                     idInfo = getIdInfo(driveObj.id);
                     const existing = idInfosMap.get(idInfo.id);
                     if (existing) {
@@ -631,6 +630,15 @@ class DriveObjectProcessor {
         return res;
     }
 
+
+    // noinspection JSUnusedLocalSymbols
+    /**
+     * @param {GoogleAppsScript.Drive.Schema.File} driveObj
+     * @returns {boolean}
+     */
+    mimeTypeMatches(driveObj) {
+        throw new Error('This must be implemented in derived classes');
+    }
 
     /**
      * @param {SpreadsheetApp.Sheet} sheet
@@ -1000,6 +1008,10 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         }
         return inputInfos;
     }
+
+    mimeTypeMatches(driveObj) {
+        return driveObj.mimeType === FOLDER_MIME;
+    }
 }
 
 
@@ -1108,6 +1120,10 @@ class DriveFileProcessor extends DriveObjectProcessor {
         }
         this.log(sheet, '------------------ Update finished ------------------');
         return true;
+    }
+
+    mimeTypeMatches(driveObj) {
+        return driveObj.mimeType !== FOLDER_MIME && driveObj.mimeType !== SHORTCUT_MIME;
     }
 }
 
