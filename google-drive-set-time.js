@@ -499,46 +499,39 @@ class DriveObjectProcessor {
             const errors = [];
 
             const query = `title = '${name}' and trashed = false`;
-            let pageToken = null;
 
-            do {  //ttt1: perhaps further modify recTraverseFolder() or put something over it to support this case, where is no recursion, but we still need to deal with pageToken
 
-                try {
-                    const items = Drive.Files.list({
-                        q: query,
-                        maxResults: 100,
-                        pageToken,
-                    });
-
-                    if (!items.items || items.items.length === 0) {
-                        break;
+            /** @type {ListCallback} */
+            const onFileOrFolder = (item) => {
+                /** @type IdInfo */
+                let idInfo;
+                if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== FOLDER_MIME)) {
+                    idInfo = getIdInfo(item.id);
+                    idInfos.push(idInfo);
+                    const existing = idInfosMap.get(idInfo.id);
+                    if (existing) {
+                        errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
+                    } else {
+                        idInfosMap.set(idInfo.id, idInfo);
                     }
-                    for (let i = 0; i < items.items.length; i++) {
-                        /** @type IdInfo */
-                        let idInfo;
-                        const item = items.items[i];
-                        if ((this.expectFolders && item.mimeType === FOLDER_MIME) || (!this.expectFolders && item.mimeType !== SHORTCUT_MIME && item.mimeType !== FOLDER_MIME)) {
-                            idInfo = getIdInfo(item.id);
-                            idInfos.push(idInfo);
-                            const existing = idInfosMap.get(idInfo.id);
-                            if (existing) {
-                                errors.push(`${this.objectLabel} with the ID ${idInfo.id} already added`);
-                            } else {
-                                idInfosMap.set(idInfo.id, idInfo);
-                            }
-                        } else if (item.mimeType !== SHORTCUT_MIME) {
-                            // This is not an error, but we'd still like to log something
-                            this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
-                        } else {
-                            this.log(sheet, `Ignoring shortcut ${item.title} [${item.id}]`);
-                        }
-                    }
-                    pageToken = items.nextPageToken;
-                } catch (err) {
-                    errors.push(`Failed to process ${this.objectLabelLc} '${name}'. ${err}`);
-                    //ttt2 improve
+                } else {
+                    // This is not an error, but we'd still like to log something
+                    this.log(sheet, `Expected a ${this.objectLabelLc} but got a ${this.reverseObjectLabelLc} for ${item.title} [${item.id}]`);
                 }
-            } while (pageToken);
+            };
+
+            /** @type {ListCallback} */
+            const onShortcut = (shortcut) => {
+                this.log(sheet, `Ignoring shortcut ${shortcut.title} [${shortcut.id}]`);
+            };
+
+            /** @type {ListCallbackErr} */
+            const onError = (err) => {
+                const msg = `Failed to process '${name}'. ${err}`;
+                this.log(sheet, msg);
+            };
+
+            runDriveQuery(query, this.getLog(sheet), onFileOrFolder, onFileOrFolder, onShortcut, onError);
 
             const cnt = idInfos.length;
             if (!cnt) {
@@ -928,13 +921,13 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         };
 
         /** @type {ListCallbackErr} */
-        const onError = (idInfo, err) => {
-            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
+        const onError = (err) => {
+            const msg = `Failed to process folder '${path}' [${id}]. ${err}`;
             this.log(sheet, msg);
         };
 
         const query = `"${id}" in parents and trashed = false`;
-        listFolder(query, this.getLog(sheet), onFolder, onFile, onShortcut, onError);
+        runDriveQuery(query, this.getLog(sheet), onFolder, onFile, onShortcut, onError);
     }
 
 
@@ -991,7 +984,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
  * @param {ListCallback} onShortcut
  * @param {ListCallbackErr} onError
  */
-function listFolder(
+function runDriveQuery(
     query,
     log,
     onFolder,
@@ -999,7 +992,7 @@ function listFolder(
     onShortcut,
     onError) {
 
-    //log(`>< listFolder(${query})`);
+    //log(`>> runDriveQuery(${query})`);
 
     let pageToken = null;
 
@@ -1031,6 +1024,8 @@ function listFolder(
             onError && onError(err);
         }
     } while (pageToken);
+
+    //log(`<< runDriveQuery(${query})`);
 }
 
 
@@ -1261,7 +1256,7 @@ class TimeSetter {
         };
 
         const query = `"${idInfo.id}" in parents and trashed = false`;
-        listFolder(query, log, onFolder, onFile, onShortcut, onError);
+        runDriveQuery(query, log, onFolder, onFile, onShortcut, onError);
 
         setTime(idInfo, res);
         this.processed.set(idInfo.id, res);
