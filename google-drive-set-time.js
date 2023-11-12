@@ -215,10 +215,10 @@ class DriveObjectProcessor {
         this.columnLabels = columnLabels;
         this.logLabelStart = LOG_START;
         this.rangeNotFoundErr = 'Couldn\'t find section delimiters. If a manual fix is not obvious,'
-            + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt1 perhaps
+            + ` delete or rename the "${this.sheetName}" sheet and then reopen the spreadsheet`; //ttt2 perhaps
         // make most members private, but not sure that it's worth it, and V8 doesn't seem to support it
 
-        this.objectLabel = usedForFolders ? 'Folder' : 'File';  //ttt1: Review idea of computing these here vs. passing
+        this.objectLabel = usedForFolders ? 'Folder' : 'File';  //ttt2: Review idea of computing these here vs. passing
         // them as params. Adds coupling but cuts param count.
         this.objectLabelLc = usedForFolders ? 'folder' : 'file';
         this.reverseObjectLabelLc = usedForFolders ? 'file' : 'folder';
@@ -348,14 +348,14 @@ class DriveObjectProcessor {
      * @returns {ValidationInfo|null} All the data necessary to set the times. A null is returned iff it couldn't find the ranges
      */
     getValidationInfo(sheet) {
-        sheet.activate(); //ttt1: This causes cell A1 to become selected. Perhaps get what's current first, then activate, then set current
+        sheet.activate(); //ttt2: This causes cell A1 to become selected. Perhaps get what's current first, then activate, then set current
         const rangeInfo = this.getRangeInfo(sheet);
         if (!rangeInfo) {
             return null;
         }
 
         /** @type {Map<string, IdInfo>} */
-        const idInfosMap = new Map();  //ttt1: IDEA doesn't complain if "new Set()" is used
+        const idInfosMap = new Map();  //ttt2: IDEA doesn't complain if "new Set()" is used
         // instead of "new Map()". See if anything can be done. Bard had some suggestions after it was told that
         // the issue is in IDEA, but not sure exactly what to do. The suggestion is to use a ".d.ts" file, in which
         // to put "declare type Set<T> = Iterable<T>; declare type Map<K, V> = Iterable<[K, V]>;", to put the file
@@ -702,7 +702,8 @@ class DriveObjectProcessor {
 
     /**
      * Gathers and validates the data, updating the sheet in the process. Mainly makes sure that files / folders
-     * exist and there are no duplicates. Also, for files, it checks that the times match and can be parsed. //ttt1 coupling
+     * exist and there are no duplicates. Also, for files, when this.dateColumn is defined, it checks that the times
+     * match and can be parsed.
      *
      * @param {SpreadsheetApp.Sheet} sheet
      * @returns {(InputInfo[]|null)} an array (which might be empty) with an IdInfo for each user input, if all is OK; null, if there are errors
@@ -879,7 +880,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
         this.log(sheet, '------------------ Starting listing ------------------');
         // /** @type {Map<string, FileInfo>} */
-        // const filesMap = new Map();  //ttt1: Not sure how to approach the issue of multiple paths to the same file
+        // const filesMap = new Map();  //ttt2: Not sure how to approach the issue of multiple paths to the same file
         /** @type {FileInfo[]} */
         const fileInfos = [];
 
@@ -911,7 +912,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         if (fileInfos.length) {
             const rows = [];
             const rowFormats = [PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, LIST_DATETIME_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT];
-            //ttt1: See about date formatting. With auto-conversion, it's supposed to convert to a sensible
+            //ttt2: See about date formatting. With auto-conversion, it's supposed to convert to a sensible
             // string, based on the spreadsheet and the browser settings, but it shows the date and no time
             const rowFormatsArr = [];
             for (const fileInfo of fileInfos) {
@@ -1255,7 +1256,7 @@ class TimeSetter {
                 modifiedDate: folder.modifiedDate,
                 multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
                 path: `${idInfo.path}/${folder.title}`,
-                ownedByMe: getOwnedByMe(folder),   //ttt1: See why there's no warning here, as getOwnedByMe()
+                ownedByMe: getOwnedByMe(folder),   //ttt2: See why there's no warning here, as getOwnedByMe()
                 // may return undefined, while the field is just boolean
             };
             //log(`>< onFolder(${JSON.stringify(subfolderIdInfo)})`);
@@ -1453,4 +1454,4 @@ function isoDateToShort(isoDate) {
         .replace(/:00$/, '')} UTC`;
 }
 
-//ttt1 Perhaps have a "dry-run", possibly enabled via a "Settings" sheet
+//ttt2 Perhaps have a "dry-run for setting the times", possibly enabled via a "Settings" sheet
