@@ -501,7 +501,8 @@ class DriveObjectProcessor {
             const query = `title = '${name}' and trashed = false`;
             let pageToken = null;
 
-            do {
+            do {  //ttt1: perhaps further modify recTraverseFolder() or put something over it to support this case, where is no recursion, but we still need to deal with pageToken
+
                 try {
                     const items = Drive.Files.list({
                         q: query,
@@ -820,6 +821,17 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         return true;
     }
 
+    /**
+     * @typedef ListInfo
+     *
+     * @property {string} name
+     * @property {string} id
+     * @property {string} path
+     * @property {string} time
+     * @property {string} size
+     * @property {string} mime
+     */
+
 
     /**
      * @param {boolean} showConfirmation
@@ -838,52 +850,21 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         }
 
         this.log(sheet, '------------------ Starting listing ------------------');
-        /**
-         * @typedef ListInfo
-         *
-         * @property {string} name
-         * @property {string} id
-         * @property {string} path
-         * @property {string} time
-         * @property {string} size
-         * @property {string} mime
-         */
-
         // /** @type {Map<string, ListInfo>} */
         // const filesMap = new Map();  //ttt1: Not sure how to approach the issue of multiple paths to the same file
         /** @type {ListInfo[]} */
-        const files= [];
+        const files = [];
 
         /** @type {Set<string>} */
-        const exploredFolders = new Set();
-
-        /** @type {traverseCallback} */
-        const onFile = (item, idInfo) => {
-            files.push({
-                id: item.id,
-                name: item.title,
-                path: idInfo.path.substring(0, idInfo.path.length - item.title.length - 1), // the path to the root is an empty string, so as paths don't end with a "/".  //ttt0: Review, perhaps always end, perhaps have root as an exception
-                size: item.fileSize,  //ttt2: see why is this a string
-                time: item.modifiedDate,
-                mime: item.mimeType,
-            })
-        };
-
-        /** @type {traverseCallback} */
-        const onShortcut = (item, idInfo) => {
-            this.log(sheet, `Ignoring shortcut ${idInfo.path}/${item.title}`);
-        };
-
-        /** @type {traverseCallbackErr} */
-        const onError = (idInfo, err) => {
-            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
-            this.log(sheet, msg);
-        };
+        const exploredFolderIds = new Set();
 
         for (const inputInfo of inputInfos) {
-            //this.listFolder(sheet, inputInfo.idInfos[0], files, exploredFolders); // When there are no errors, there is exactly 1 ID per entry
-            recTraverseFolder(this.getLog(sheet), inputInfo.idInfos[0], null, onFile, onShortcut, onError, exploredFolders); // When there are no errors, there is exactly 1 ID per entry
+
+            const idInfo = inputInfo.idInfos[0]; // The assumption is that
+            // it got here, there is exactly 1 ID for each name and that all IDs are valid
+            this.listFilesHlp(idInfo.id, idInfo.path, sheet, files, exploredFolderIds);
         }
+
         this.log(sheet, '------------------------------------');
         files.sort((l1, l2) => (l1.path + l1.name).localeCompare(l2.path + l2.name));
         for (const file of files) {
@@ -908,6 +889,52 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             }
         }
         this.log(sheet, '------------------ Listing finished ------------------');
+    }
+
+    /**
+     *
+     * @param {string} id
+     * @param {string} path
+     * @param {SpreadsheetApp.Sheet} sheet
+     * @param {ListInfo[]} files
+     * @param {Set<string>} exploredFolderIds
+     */
+    listFilesHlp(id, path, sheet, files, exploredFolderIds) {
+        /** @type {ListCallback} */
+        const onFolder = (folder) => {
+            if (exploredFolderIds.has(folder.id)) {
+                this.log(sheet, `Already processed ${path} [${id}]`);
+                return;
+            }
+            exploredFolderIds.add(folder.id);
+            this.listFilesHlp(folder.id, `${path}/${folder.title}`, sheet, files, exploredFolderIds);
+        };
+
+        /** @type {ListCallback} */
+        const onFile = (file) => {
+            files.push({
+                id: file.id,
+                name: file.title,
+                path: path, // the path to the root is an empty string, so as paths don't end with a "/".  //ttt0: Review, perhaps always end, perhaps have root as an exception
+                size: file.fileSize,  //ttt2: see why is this a string
+                time: file.modifiedDate,
+                mime: file.mimeType,
+            });
+        };
+
+        /** @type {ListCallback} */
+        const onShortcut = (shortcut) => {
+            this.log(sheet, `Ignoring shortcut ${path}/${shortcut.title}`);
+        };
+
+        /** @type {ListCallbackErr} */
+        const onError = (idInfo, err) => {
+            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
+            this.log(sheet, msg);
+        };
+
+        const query = `"${id}" in parents and trashed = false`;
+        listFolder(query, this.getLog(sheet), onFolder, onFile, onShortcut, onError);
     }
 
 
@@ -946,9 +973,8 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 }
 
 /**
- * @typedef {(function(GoogleAppsScript.Drive.Schema.File, IdInfo)|null)} traverseCallback
- */
-/**
+ * @typedef {(function(GoogleAppsScript.Drive.Schema.File, IdInfo, any):any|null)} traverseCallbackFolder
+ * @typedef {(function(GoogleAppsScript.Drive.Schema.File, IdInfo):any|null)} traverseCallbackNonFolder
  * @typedef {(function(IdInfo, any)|null)} traverseCallbackErr
  */
 
@@ -959,22 +985,35 @@ class DriveFolderProcessor extends DriveObjectProcessor {
  *
  * @param {SimpleLogger} log
  * @param {IdInfo} idInfo for the start folder; the "id" field must be correct; the "path" field is used to compute paths of sub-folders
- * @param {traverseCallback} onFolder
- * @param {traverseCallback} onFile
- * @param {traverseCallback} onShortcut
+ * @param {traverseCallbackFolder} onFolder
+ * @param {traverseCallbackNonFolder} onFile
+ * @param {traverseCallbackNonFolder} onShortcut
  * @param {traverseCallbackErr} onError
- * @param {Set<string>} exploredFolders used to avoid passing several times through the same folder (e.g. when the user asked for a folder and an ancestor)
+ * @param {Map<string, any>} exploredFolders used to avoid passing several times through the same folder (e.g. when the user asked for a folder and an ancestor)
+ * @param {any} initialValue
+ * @returns {any} usually the same type as initialValue; as we go through the folders, we might compute values and do
+ * something with them (get max, add, ...); this is how we pass that computed value from a subfolder to the current
+ * folder; it is also possible to not need to compute anything, and then we can use "undefined"
  */
-function recTraverseFolder(log, idInfo, onFolder, onFile, onShortcut, onError, exploredFolders) {
+function recTraverseFolder(
+    log,
+    idInfo,
+    onFolder,
+    onFile,
+    onShortcut,
+    onError,
+    exploredFolders,
+    initialValue) {
+
     if (exploredFolders.has(idInfo.id)) {
         log(`Already processed ${idInfo.path} [${idInfo.id}]`)
-        return;
+        return exploredFolders.get(idInfo.id);
     }
-    exploredFolders.add(idInfo.id)
 
     const query = `"${idInfo.id}" in parents and trashed = false`;  //ttt2: Perhaps improve. An alternative is
     // to not recurse here, but have onFolder make another call, and then the query can be anything
 
+    let res = initialValue;
     let pageToken = null;
 
     do {
@@ -1000,13 +1039,13 @@ function recTraverseFolder(log, idInfo, onFolder, onFile, onShortcut, onError, e
                     // may return undefined, while the field is just boolean
                 };
                 if (item.mimeType === FOLDER_MIME) {
-                    onFolder && onFolder(item, childIdInfo);
-                    recTraverseFolder(log, childIdInfo, onFolder, onFile, onShortcut, onError, exploredFolders);
+                    let subfolderValue = recTraverseFolder(log, childIdInfo, onFolder, onFile, onShortcut, onError, exploredFolders, initialValue);
+                    onFolder && (res = onFolder(item, childIdInfo, subfolderValue));
                 } else {
                     if (item.mimeType === SHORTCUT_MIME) {
-                        onShortcut && onShortcut(item, childIdInfo);
+                        onShortcut && (res = onShortcut(item, childIdInfo));
                     } else {
-                        onFile && onFile(item, childIdInfo);
+                        onFile && (res = onFile(item, childIdInfo));
                     }
                 }
             }
@@ -1016,6 +1055,68 @@ function recTraverseFolder(log, idInfo, onFolder, onFile, onShortcut, onError, e
             log(msg);
             onError && onError(idInfo, err);
             //ttt2 improve
+        }
+    } while (pageToken);
+
+    exploredFolders.set(idInfo.id, res);
+    return res;
+}
+
+
+/**
+ * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} ListCallback
+ * @typedef {(function(any)|null)} ListCallbackErr
+ */
+
+
+/**
+ * Starting from a folder, it finds its children and invokes callbacks on them. For folders, it also calls itself.
+ * Keeps track of what was processed thus far, to prevent processing a folder multiple times.
+ *
+ *
+ * @param {string} query
+ * @param {SimpleLogger} log
+ * @param {ListCallback} onFolder
+ * @param {ListCallback} onFile
+ * @param {ListCallback} onShortcut
+ * @param {ListCallbackErr} onError
+ */
+function listFolder(
+    query,
+    log,
+    onFolder,
+    onFile,
+    onShortcut,
+    onError) {
+
+    let pageToken = null;
+
+    do {
+        try {
+            const items = Drive.Files.list({
+                q: query,
+                maxResults: 100,
+                pageToken,
+            });
+
+            if (!items.items || items.items.length === 0) {
+                break;
+            }
+            for (let i = 0; i < items.items.length; i++) {
+                const item = items.items[i];
+                if (item.mimeType === FOLDER_MIME) {
+                    onFolder && onFolder(item);
+                } else if (item.mimeType === SHORTCUT_MIME) {
+                    onShortcut && onShortcut(item);
+                } else {
+                    onFile && onFile(item);
+                }
+            }
+            pageToken = items.nextPageToken;
+        } catch (err) {
+            const msg = `Failed to process query '${query}]. ${err}`;
+            log(msg);
+            onError && onError(err);
         }
     } while (pageToken);
 }
@@ -1136,6 +1237,14 @@ function setTimesFoldersDebug() {
 // noinspection JSUnusedGlobalSymbols
 /**
  * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ */
+function listFoldersDebug() {
+    return driveFolderProcessor.listFiles(false);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
  *
  * @returns {boolean}
  */
@@ -1165,59 +1274,68 @@ class TimeSetter {
             return existing;
         }
 
-        const query = `"${idInfo.id}" in parents and trashed = false`;
-        let pageToken = null;
+        const setTime = (/** IdInfo */ idInfo, /** string */ time) => {
+            if (time !== idInfo.modifiedDate) {
+                if (idInfo.path) {
+                    // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
+                    try {
+                        if (idInfo.ownedByMe) {
+                            log(`Setting time to ${time} for ${idInfo.path}. It was ${idInfo.modifiedDate}`);
+                            updateModifiedTime(idInfo.id, time);
+                        } else {
+                            log(`Not updating ${idInfo.path}, which has a different owner`);
+                        }
+                    } catch (err) {
+                        const msg = `Failed to update time for folder '${idInfo.path}' [${idInfo.id}]. ${err}`;
+                        log(msg);
+                        //ttt2 improve
+                    }
+                }
+            } else {
+                log(`Time ${time} is already correct for ${idInfo.path}`);
+            }
+        }
+
         let res = SMALLEST_TIME;
 
-        do {
-            try {
-                const items = Drive.Files.list({
-                    q: query,
-                    maxResults: 100,
-                    pageToken,
-                });
-
-                if (!items.items || items.items.length === 0) {
-                    //console.log('No folders found.');
-                    break;
-                }
-                for (let i = 0; i < items.items.length; i++) {
-                    const item = items.items[i];
-                    let newTime = res;
-                    if (item.mimeType === FOLDER_MIME) {
-                        /** @type {IdInfo}} */
-                        const childIdInfo = {
-                            id: item.id,
-                            modifiedDate: item.modifiedDate,
-                            multiplePaths: false,  // not correct, but it doesn't matter; it's just to have something
-                            path: `${idInfo.path}/${item.title}`,
-                            ownedByMe: getOwnedByMe(item),   //ttt1: See why there's no warning here, as getOwnedByMe()
-                            // may return undefined, while the field is just boolean
-                        };
-                        newTime = this.processFolder(childIdInfo, log);
-                    } else {
-                        if (item.mimeType !== SHORTCUT_MIME) {
-                            newTime = item.modifiedDate;
-                        } else {
-                            log(`Ignoring date of shortcut ${idInfo.path}/${item.title}`);
-                        }
-                    }
-                    if (newTime > res) {
-                        res = newTime;
-                    }
-                }
-                pageToken = items.nextPageToken;
-            } catch (err) {
-                const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
-                // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
-                // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
-                // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
-                log(msg);
-                //ttt2 improve
+        const processTime = (time) => {
+            if (time > res) {
+                res = time;
             }
-        } while (pageToken);
+        }
 
-        if (res !== idInfo.modifiedDate) {
+        /** @type {Map<string, any>} */
+        const exploredFolders = new Map();
+
+
+        /** @type {traverseCallbackFolder} */
+        const onFolder = (subfolder, subfolderIdInfo, subfolderTime) => {
+            processTime(subfolderTime);
+            setTime(subfolderIdInfo, subfolderTime);
+        }
+
+        /** @type {traverseCallbackNonFolder} */
+        const onFile = (file) => {
+            processTime(file.modifiedDate);
+        };
+
+        /** @type {traverseCallbackNonFolder} */
+        const onShortcut = (shortcut, shortcutIdInfo) => {
+            log(`Ignoring shortcut ${shortcutIdInfo.path}/${shortcut.title}`);
+        };
+
+        /** @type {traverseCallbackErr} */
+        const onError = (idInfo, err) => {
+            const msg = `Failed to process folder '${idInfo.path}' [${idInfo.id}]. ${err}`; //ttt2 We might want
+            // ${err.message}, but that might not always exist, and then we get "undefined". This would work, but not
+            // sure what value it provides: ${err.message || err}. If the exception being thrown inherits Error (as
+            // all exceptions are supposed to), then err.message exists. But some code might throw arbitrary expressions
+            log(msg);
+        };
+
+        recTraverseFolder(log, idInfo, onFolder, onFile, onShortcut, onError, exploredFolders, SMALLEST_TIME);
+
+        /*if (res !== idInfo.modifiedDate) {
             if (idInfo.path) {
                 // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
                 try {
@@ -1235,7 +1353,8 @@ class TimeSetter {
             }
         } else {
             log(`Time ${res} is already correct for ${idInfo.path}`);
-        }
+        }*/
+        setTime(idInfo, res);
         this.processed.set(idInfo.id, res);
         return res;
     }
@@ -1292,7 +1411,7 @@ function getIdInfo(id) {
         path: `${parentInfo.path}/${item.title}`,
         multiplePaths: parentInfo.multiplePaths || (parentCnt > 1),
         modifiedDate: item.modifiedDate,
-        ownedByMe: item.ownedByMe,
+        ownedByMe: getOwnedByMe(item),
     };
 }
 
