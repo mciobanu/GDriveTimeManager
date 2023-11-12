@@ -330,10 +330,12 @@ class DriveObjectProcessor {
         sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
             .setBackground(LOG_BG);
 
-        if (this.dateColumn) {
+        sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.idsEnd - rangeInfo.namesBegin, this.outputColumn)
+            .setNumberFormat(PLAIN_TEXT_FMT);
+        /*if (this.dateColumn) {
             sheet.getRange(rangeInfo.namesBegin, this.dateColumn, rangeInfo.idsEnd - rangeInfo.namesBegin, this.dateColumn)
                 .setNumberFormat(PLAIN_TEXT_FMT);
-        }
+        }*/
         return true;
     }
 
