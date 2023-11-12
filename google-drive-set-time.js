@@ -197,7 +197,7 @@ const IDS_BG = '#e0e0ff';
 const IDS_OUT_BG = '#f0f0ff';
 const LOG_BG = '#ffc';
 const ERROR_BG = '#fbb';
-
+const LISTING_BG = '#eee';
 
 class DriveObjectProcessor {
 
@@ -327,8 +327,10 @@ class DriveObjectProcessor {
             .setBackground(IDS_OUT_BG)
             //.protect().setWarningOnly(true)
         ;
-        sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
-            .setBackground(LOG_BG);
+        /*sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
+            .setBackground(LOG_BG);*/   //ttt2: Review if we should set the background for logs. It was commented
+        // out because it overrode listings backgrounds, but it has the advantage that if the user enters some data by
+        // mistake which is not visible, the background would make it clear that it is so.
 
         sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.idsEnd - rangeInfo.namesBegin, this.outputColumn)
             .setNumberFormat(PLAIN_TEXT_FMT);
@@ -861,7 +863,19 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         }
 
         this.log(sheet, '------------------------------------');
-        fileInfos.sort((fi1, fi2) => (fi1.path + fi1.name).localeCompare(fi2.path + fi2.name));
+        for (const fileInfo of fileInfos) {
+            if (!fileInfo.path) {
+                fileInfo.path = '/';
+            }
+        }
+        fileInfos.sort((fi1, fi2) => (`${fi1.path} ${fi1.name}`).localeCompare(`${fi2.path} ${fi2.name}`));  //!!! The
+        // point of adding a space between path and name is to make sure all files in a folder stay together. (Well,
+        // sort of. It shouldn't be a space, but a \u0000 or \u0001, but these get sorted after '/'.)  //ttt2: See why
+        /*
+        const arr3 = ['ab c', 'ab\0000c', 'ab\0001c', 'ab/c'];
+        arr3.sort((fi1, fi2) => (fi1).localeCompare(fi2));
+        log(arr3);
+         */
 
         if (fileInfos.length) {
             const rows = [];
@@ -876,7 +890,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             }
             const range = sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6);
             range.setNumberFormats(rowFormatsArr);
-            range.setValues(rows).setBackground(LOG_BG);
+            range.setValues(rows).setBackground(LISTING_BG);
         } else {
             this.log(sheet, 'No files were found');
         }
@@ -907,7 +921,8 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             fileInfos.push({
                 id: file.id,
                 name: file.title,
-                path: path, // the path to the root is an empty string, so as paths don't end with a "/".  //ttt0: Review, perhaps always end, perhaps have root as an exception
+                path: path, // the path to the root is an empty string, so as paths don't end with a "/". //ttt2: Review,
+                // perhaps always end, perhaps have root as an exception. In the UI there is a '/'.
                 size: file.fileSize,  //ttt2: see why is this a string
                 time: file.modifiedDate,
                 mime: file.mimeType,
