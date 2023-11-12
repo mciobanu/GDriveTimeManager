@@ -1183,28 +1183,6 @@ class TimeSetter {
             return existing;
         }
 
-        const setTime = (/** IdInfo */ idInfo2, /** string */ time) => { //ttt0: rename idInfo2
-            if (time !== idInfo2.modifiedDate) {
-                if (idInfo2.path) {
-                    // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
-                    try {
-                        if (idInfo2.ownedByMe) {
-                            log(`Setting time to ${time} for ${idInfo2.path}. It was ${idInfo2.modifiedDate}`);
-                            updateModifiedTime(idInfo2.id, time);
-                        } else {
-                            log(`Not updating ${idInfo2.path}, which has a different owner`);
-                        }
-                    } catch (err) {
-                        const msg = `Failed to update time for folder '${idInfo2.path}' [${idInfo2.id}]. ${err}`;
-                        log(msg);
-                        //ttt2 improve
-                    }
-                }
-            } else {
-                log(`Time ${time} is already correct for ${idInfo2.path}`);
-            }
-        }
-
         let res = SMALLEST_TIME;
 
         const processTime = (time) => {
@@ -1231,7 +1209,6 @@ class TimeSetter {
 
             const subfolderTime = this.processFolder(subfolderIdInfo, log);
             processTime(subfolderTime);
-            //setTime(subfolderIdInfo, subfolderTime);
         }
 
         /** @type {ListCallback} */
@@ -1258,10 +1235,37 @@ class TimeSetter {
         const query = `"${idInfo.id}" in parents and trashed = false`;
         runDriveQuery(query, log, onFolder, onFile, onShortcut, onError);
 
-        setTime(idInfo, res);
+        this.setFolderTime(idInfo, res, log);
         this.processed.set(idInfo.id, res);
         //log(`<< processFolder(${JSON.stringify(idInfo)}): ${res}`);
         return res;
+    }
+
+    /**
+     * @param {IdInfo} folderIdInfo
+     * @param {string} time
+     * @param {SimpleLogger} log
+     */
+    setFolderTime(folderIdInfo, time, log) {
+        if (time !== folderIdInfo.modifiedDate) {
+            if (folderIdInfo.path) {
+                // We are not dealing here with the root, which cannot be updated (and for which you couldn't easily see the date anyway)
+                try {
+                    if (folderIdInfo.ownedByMe) {
+                        log(`Setting time to ${time} for ${folderIdInfo.path}. It was ${folderIdInfo.modifiedDate}`);
+                        updateModifiedTime(folderIdInfo.id, time);
+                    } else {
+                        log(`Not updating ${folderIdInfo.path}, which has a different owner`);
+                    }
+                } catch (err) {
+                    const msg = `Failed to update time for folder '${folderIdInfo.path}' [${folderIdInfo.id}]. ${err}`;
+                    log(msg);
+                    //ttt2 improve
+                }
+            }
+        } else {
+            log(`Time ${time} is already correct for ${folderIdInfo.path}`);
+        }
     }
 
     /**
