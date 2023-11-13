@@ -57,16 +57,16 @@ function tst02() {
     //logS('msg2');
 
     //const query = `"1wKMfIBhstKUVf4yRYQlgXUuOlsiI6OZ8" in parents and trashed = false`;
-    const query = `title = 'testmtime03' and trashed = false`;
-    let pageToken = null;
-
-    const items = Drive.Files.list({
-        q: query,
-        maxResults: 100,
-        pageToken,
-    });
-
-    console.log(items.items ? items.items.length : 'no results');
+    // const query = `title = 'testmtime03' and trashed = false`;
+    // let pageToken = null;
+    //
+    // const items = Drive.Files.list({
+    //     q: query,
+    //     maxResults: 100,
+    //     pageToken,
+    // });
+    //
+    // console.log(items.items ? items.items.length : 'no results');
 }
 
 /**
@@ -233,6 +233,13 @@ class DriveObjectProcessor {
     getSheet() {
         //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
         let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+        if (sheet && sheet.getLastRow() === 1) {
+            // At the initial run, the script might be stopped for Google to ask for permissions and leave
+            // the sheet in an inconsistent state. This is an attempt to deal with this, but it can probably
+            // be improved. //ttt2
+            SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet);
+            sheet = undefined;
+        }
         if (!sheet) {
             sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet();
             sheet.setName(this.sheetName);
