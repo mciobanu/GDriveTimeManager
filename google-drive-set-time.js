@@ -856,7 +856,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             return false;
         }
 
-        this.log(sheet, '------------------ Starting update ------------------');
+        this.log(sheet, `------------------ Starting update for ${getPathsForValidInputInfos(inputInfos)} ------------------`);
         const timeSetter = new TimeSetter();
         for (const inputInfo of inputInfos) {
             timeSetter.processFolder(inputInfo.idInfos[0], this.getLog(sheet));
@@ -893,7 +893,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
             return;
         }
 
-        this.log(sheet, '------------------ Starting listing ------------------');
+        this.log(sheet, `------------------ Starting listing for ${getPathsForValidInputInfos(inputInfos)} ------------------`);
         // /** @type {Map<string, FileInfo>} */
         // const filesMap = new Map();  //ttt2: Not sure how to approach the issue of multiple paths to the same file
         /** @type {FileInfo[]} */
@@ -1065,7 +1065,7 @@ class DriveFileProcessor extends DriveObjectProcessor {
             return false;
         }
 
-        this.log(sheet, '------------------ Starting update ------------------');
+        this.log(sheet, `------------------ Starting update for ${getPathsForValidInputInfos(inputInfos)} ------------------`);
         const timeSetter = new TimeSetter();
         for (const inputInfo of inputInfos) {
             timeSetter.processFile(inputInfo, (message => this.log(sheet, message)));
@@ -1331,6 +1331,16 @@ function getOwnedByMe(file) {
         return false;
     }
     return undefined;
+}
+
+
+/**
+ * @param {InputInfo[]} inputInfos
+ * @returns {string}
+ */
+function getPathsForValidInputInfos(inputInfos) {
+    // A valid InputInfo has exactly 1 IdInfo
+    return inputInfos.map(x => x.idInfos[0].path).join(', ') || '/';
 }
 
 
