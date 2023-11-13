@@ -22,6 +22,65 @@ THE SOFTWARE.
 
  */
 
+
+function menuValidateFolders() {
+    return driveFolderProcessor.validateInput();
+}
+
+/**
+ * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ */
+function menuSetTimesFolders() {
+    return driveFolderProcessor.setTimes(true);
+}
+
+function menuListFolders() {
+    return driveFolderProcessor.listFiles(true);
+}
+
+
+function menuValidateFiles() {
+    return driveFileProcessor.validateInput();
+}
+
+/**
+ * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ */
+function menuSetTimesFiles() {
+    return driveFileProcessor.setTimes(true);
+}
+
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ *
+ * @returns {boolean}
+ */
+function setTimesFoldersDebug() {
+    return driveFolderProcessor.setTimes(false);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ */
+function listFoldersDebug() {
+    return driveFolderProcessor.listFiles(false);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ *
+ * @returns {boolean}
+ */
+function setTimesFilesDebug() {
+    return driveFileProcessor.setTimes(false);
+}
+
+
+
 const PLAIN_TEXT_FMT = '@STRING@';
 const LIST_DATETIME_FMT = 'yyyy-MM-dd hh:mm';
 
@@ -36,6 +95,49 @@ const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
 const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
 // is set at noon, so most timezones will see it as January 1st)
+
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * Run automatically when the corresponding spreadsheet is opened
+ */
+function onOpen() {
+    // https://developers.google.com/apps-script/guides/menus
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('Modification times')
+        .addItem(`Validate folder data`, 'menuValidateFolders')
+        .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
+        .addItem(`List content of specified  folders`, 'menuListFolders')
+        .addSeparator()
+        .addItem(`Validate file data`, 'menuValidateFiles')
+        .addItem(`Set time for specified files`, 'menuSetTimesFiles')
+        .addToUi();
+
+    setupSheets();
+}
+//ttt3 Review other triggers: https://developers.google.com/apps-script/guides/triggers
+
+
+/**
+ * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
+ */
+function setupSheets() {
+    const folderSheet = driveFolderProcessor.getSheet();
+    const fileSheetExists = driveFileProcessor.sheetExists();
+    if (!fileSheetExists) {
+        driveFileProcessor.getSheet();
+    }
+
+    driveFolderProcessor.setupSheet();
+    driveFileProcessor.setupSheet();
+
+    if (!fileSheetExists) {
+        // After the sheets have been created, we want to leave the active one as the user set it. At creation,
+        // we want to activate folders, as it's what the user probably wants.
+        folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
+        // works when starting from the Sheet menu. At least it doesn't crash
+    }
+}
 
 
 /**
@@ -89,28 +191,7 @@ const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something els
  * @property {InputInfo[]} inputIdInfos
  * @property {Map<string, IdInfo>} idInfosMap
  * @property {boolean} hasErrors
-*/
-
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * Run automatically when the corresponding spreadsheet is opened
  */
-function onOpen() {
-    // https://developers.google.com/apps-script/guides/menus
-    const ui = SpreadsheetApp.getUi();
-    ui.createMenu('Modification times')
-        .addItem(`Validate folder data`, 'menuValidateFolders')
-        .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
-        .addItem(`List content of specified  folders`, 'menuListFolders')
-        .addSeparator()
-        .addItem(`Validate file data`, 'menuValidateFiles')
-        .addItem(`Set time for specified files`, 'menuSetTimesFiles')
-        .addToUi();
-
-    setupSheets();
-}
-//ttt3 Review other triggers: https://developers.google.com/apps-script/guides/triggers
 
 
 const LOG_START = 'Log (don\'t change this cell)';
@@ -952,7 +1033,6 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
 const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
 const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
-
 const FILE_COLUMN_LABELS = ['New date', OUTPUT_COLUMN_LABEL];
 
 class DriveFileProcessor extends DriveObjectProcessor {
@@ -1121,86 +1201,6 @@ class TimeSetter {
     }
 }
 
-
-/**
- * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
- */
-function setupSheets() {
-    const folderSheet = driveFolderProcessor.getSheet();
-    const fileSheetExists = driveFileProcessor.sheetExists();
-    if (!fileSheetExists) {
-        driveFileProcessor.getSheet();
-    }
-
-    driveFolderProcessor.setupSheet();
-    driveFileProcessor.setupSheet();
-
-    if (!fileSheetExists) {
-        // After the sheets have been created, we want to leave the active one as the user set it. At creation,
-        // we want to activate folders, as it's what the user probably wants.
-        folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
-        // works when starting from the Sheet menu. At least it doesn't crash
-    }
-}
-
-
-function menuValidateFolders() {
-    return driveFolderProcessor.validateInput();
-}
-
-/**
- * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
- */
-function menuSetTimesFolders() {
-    return driveFolderProcessor.setTimes(true);
-}
-
-function menuListFolders() {
-    return driveFolderProcessor.listFiles(true);
-}
-
-
-function menuValidateFiles() {
-    return driveFileProcessor.validateInput();
-}
-
-/**
- * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
- */
-function menuSetTimesFiles() {
-    return driveFileProcessor.setTimes(true);
-}
-
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
- *
- * @returns {boolean}
- */
-function setTimesFoldersDebug() {
-    return driveFolderProcessor.setTimes(false);
-}
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
- */
-function listFoldersDebug() {
-    return driveFolderProcessor.listFiles(false);
-}
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
- *
- * @returns {boolean}
- */
-function setTimesFilesDebug() {
-    return driveFileProcessor.setTimes(false);
-}
-
-
 /**
  * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} DriveQueryCallback
  * @typedef {(function(any)|null)} DriveQueryErrCallback
@@ -1208,9 +1208,7 @@ function setTimesFilesDebug() {
 
 
 /**
- * Starting from a folder, it finds its children and invokes callbacks on them. For folders, it also calls itself.
- * Keeps track of what was processed thus far, to prevent processing a folder multiple times.
- *
+ * Starting with a query, it finds the matching drive objects and invokes callbacks on them.
  *
  * @param {string} query
  * @param {SimpleLogger} log
@@ -1267,7 +1265,7 @@ function runDriveQuery(
 
 
 /**
- * @param {string} id
+ * @param {string} id ID of a file or a folder
  * @param {string} newTime format: '2020-05-05T10:00:00.000Z'
  */
 function updateModifiedTime(id, newTime) {
