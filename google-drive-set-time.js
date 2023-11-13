@@ -30,60 +30,19 @@ const DEFAULT_SOURCE_HEIGHT = 5;
 const FOLDERS_SHEET_NAME = 'Folders';
 const FILES_SHEET_NAME = 'Files';
 
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
+
 
 const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
 // is set at noon, so most timezones will see it as January 1st)
 
-//const ROOT_ID = 'root';
-
-// noinspection JSUnusedGlobalSymbols
-function tst02() {
-    // const a = SOURCE_LIST;
-    // const b = a;
-    // const activeSheet = SpreadsheetApp.getActiveSheet();
-    // // sheet = ss.getSheets()[0];
-    // const range = activeSheet.getRange(11, 1);
-    // range.setValue('abc');
-    // const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets();
-    // if (sheets.length !== 3) {
-    //     SpreadsheetApp.getActiveSpreadsheet().insertSheet();
-    // }
-    //getFoldersSheet().activate();
-    // SpreadsheetApp.getActiveSpreadsheet().getSheets()[0].activate();
-    // const aa = getFilesSheet().getLastRow();
-    // return aa;
-
-    //logS('msg1');
-    //logS('msg2');
-
-    //const query = `"1wKMfIBhstKUVf4yRYQlgXUuOlsiI6OZ8" in parents and trashed = false`;
-    // const query = `title = 'testmtime03' and trashed = false`;
-    // let pageToken = null;
-    //
-    // const items = Drive.Files.list({
-    //     q: query,
-    //     maxResults: 100,
-    //     pageToken,
-    // });
-    //
-    // console.log(items.items ? items.items.length : 'no results');
-}
 
 /**
  * @typedef {Function} SimpleLogger
  * @param {string} message
  */
 
-/*
-{
-    namesBegin: 3,
-    namesEnd: 12,
-    idsBegin: 12,
-    idsEnd: 18,
-    logsBegin: 18,
-    logsEnd: 40,
-}
-*/
 
 /**
  * Where the ranges of names, IDs, and logs begin and end
@@ -121,41 +80,6 @@ function tst02() {
  * @property {string} [date]
  */
 
-
-/*
-
-IdInfo: {
-    id: "ke8436",
-    path: "/kf84/asf",
-    multiplePaths: true, // optional, for when there are multiple parents
-    modifiedDate: "2000-01-01T10:00:00.000Z",
-    ownedByMe: true,
-}
-
-InputInfo:
-{
-    idInfos: [
-        { // IdInfo
-            id: "hd73hb",
-            path: "/de/fd/gth",
-            multiplePaths: false,
-            modifiedDate: "2000-01-01T10:00:00.000Z",
-            ownedByMe: true,
-        },
-        {
-            id: "ke8436",
-            path: "/kf84/asf",
-            multiplePaths: false,
-            modifiedDate: "2000-01-01T10:00:00.000Z",
-            ownedByMe: true,
-        },
-    ],
-    errors: [
-        "Found multiple folders with name 'name1'",
-    ],
-    date: "21/4/2015 10:11",
-}
-*/
 
 /**
  * @typedef {Object} ValidationInfo
@@ -1026,69 +950,6 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 }
 
 
-/**
- * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} DriveQueryCallback
- * @typedef {(function(any)|null)} DriveQueryErrCallback
- */
-
-
-/**
- * Starting from a folder, it finds its children and invokes callbacks on them. For folders, it also calls itself.
- * Keeps track of what was processed thus far, to prevent processing a folder multiple times.
- *
- *
- * @param {string} query
- * @param {SimpleLogger} log
- * @param {DriveQueryCallback} onFolder
- * @param {DriveQueryCallback} onFile
- * @param {DriveQueryCallback} onShortcut
- * @param {DriveQueryErrCallback} onError
- */
-function runDriveQuery(
-    query,
-    log,
-    onFolder,
-    onFile,
-    onShortcut,
-    onError) {
-
-    //log(`>> runDriveQuery(${query})`);
-
-    let pageToken = null;
-
-    do {
-        try {
-            const items = Drive.Files.list({
-                q: query,
-                maxResults: 100,
-                pageToken,
-            });
-
-            if (!items.items || items.items.length === 0) {
-                break;
-            }
-            for (let i = 0; i < items.items.length; i++) {
-                const item = items.items[i];
-                if (item.mimeType === FOLDER_MIME) {
-                    onFolder && onFolder(item);
-                } else if (item.mimeType === SHORTCUT_MIME) {
-                    onShortcut && onShortcut(item);
-                } else {
-                    onFile && onFile(item);
-                }
-            }
-            pageToken = items.nextPageToken;
-        } catch (err) {
-            const msg = `Failed to process query '${query}]. ${err}`;
-            log(msg);
-            onError && onError(err);
-        }
-    } while (pageToken);
-
-    //log(`<< runDriveQuery(${query})`);
-}
-
-
 const FILE_NAME_START = 'File names, one per cell (don\'t change this cell)';
 const FILE_ID_START = 'File IDs, one per cell (don\'t change this cell)';
 
@@ -1142,90 +1003,6 @@ const driveFolderProcessor = new DriveFolderProcessor();
 const driveFileProcessor = new DriveFileProcessor();
 
 
-
-/**
- * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
- */
-function setupSheets() {
-    const folderSheet = driveFolderProcessor.getSheet();
-    const fileSheetExists = driveFileProcessor.sheetExists();
-    if (!fileSheetExists) {
-        driveFileProcessor.getSheet();
-    }
-
-    driveFolderProcessor.setupSheet();
-    driveFileProcessor.setupSheet();
-
-    if (!fileSheetExists) {
-        // After the sheets have been created, we want to leave the active one as the user set it. At creation,
-        // we want to activate folders, as it's what the user probably wants.
-        folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
-        // works when starting from the Sheet menu. At least it doesn't crash
-    }
-}
-
-
-function menuValidateFolders() {
-    return driveFolderProcessor.validateInput();
-}
-
-/**
- * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
- */
-function menuSetTimesFolders() {
-    return driveFolderProcessor.setTimes(true);
-}
-
-function menuListFolders() {
-    return driveFolderProcessor.listFiles(true);
-}
-
-
-function menuValidateFiles() {
-    return driveFileProcessor.validateInput();
-}
-
-/**
- * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
- */
-function menuSetTimesFiles() {
-    return driveFileProcessor.setTimes(true);
-}
-
-
-
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
- *
- * @returns {boolean}
- */
-function setTimesFoldersDebug() {
-    return driveFolderProcessor.setTimes(false);
-}
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
- */
-function listFoldersDebug() {
-    return driveFolderProcessor.listFiles(false);
-}
-
-// noinspection JSUnusedGlobalSymbols
-/**
- * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
- *
- * @returns {boolean}
- */
-function setTimesFilesDebug() {
-    return driveFileProcessor.setTimes(false);
-}
-
-
-const FOLDER_MIME = 'application/vnd.google-apps.folder';
-const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 
 class TimeSetter {
 
@@ -1343,6 +1120,150 @@ class TimeSetter {
         updateModifiedTime(idInfo.id, inputInfo.date);
     }
 }
+
+
+/**
+ * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
+ */
+function setupSheets() {
+    const folderSheet = driveFolderProcessor.getSheet();
+    const fileSheetExists = driveFileProcessor.sheetExists();
+    if (!fileSheetExists) {
+        driveFileProcessor.getSheet();
+    }
+
+    driveFolderProcessor.setupSheet();
+    driveFileProcessor.setupSheet();
+
+    if (!fileSheetExists) {
+        // After the sheets have been created, we want to leave the active one as the user set it. At creation,
+        // we want to activate folders, as it's what the user probably wants.
+        folderSheet.activate(); //ttt3 This doesn't work when running the script in the editor, but
+        // works when starting from the Sheet menu. At least it doesn't crash
+    }
+}
+
+
+function menuValidateFolders() {
+    return driveFolderProcessor.validateInput();
+}
+
+/**
+ * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ */
+function menuSetTimesFolders() {
+    return driveFolderProcessor.setTimes(true);
+}
+
+function menuListFolders() {
+    return driveFolderProcessor.listFiles(true);
+}
+
+
+function menuValidateFiles() {
+    return driveFileProcessor.validateInput();
+}
+
+/**
+ * @returns {boolean} true iff all was OK (the range is valid and the user confirmed it's OK to proceed, then we made the updates)
+ */
+function menuSetTimesFiles() {
+    return driveFileProcessor.setTimes(true);
+}
+
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ *
+ * @returns {boolean}
+ */
+function setTimesFoldersDebug() {
+    return driveFolderProcessor.setTimes(false);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ */
+function listFoldersDebug() {
+    return driveFolderProcessor.listFiles(false);
+}
+
+// noinspection JSUnusedGlobalSymbols
+/**
+ * For debugging, to be called from the Google Apps Script web IDE, where a UI is not accessible.
+ *
+ * @returns {boolean}
+ */
+function setTimesFilesDebug() {
+    return driveFileProcessor.setTimes(false);
+}
+
+
+/**
+ * @typedef {(function(GoogleAppsScript.Drive.Schema.File)|null)} DriveQueryCallback
+ * @typedef {(function(any)|null)} DriveQueryErrCallback
+ */
+
+
+/**
+ * Starting from a folder, it finds its children and invokes callbacks on them. For folders, it also calls itself.
+ * Keeps track of what was processed thus far, to prevent processing a folder multiple times.
+ *
+ *
+ * @param {string} query
+ * @param {SimpleLogger} log
+ * @param {DriveQueryCallback} onFolder
+ * @param {DriveQueryCallback} onFile
+ * @param {DriveQueryCallback} onShortcut
+ * @param {DriveQueryErrCallback} onError
+ */
+function runDriveQuery(
+    query,
+    log,
+    onFolder,
+    onFile,
+    onShortcut,
+    onError) {
+
+    //log(`>> runDriveQuery(${query})`);
+
+    let pageToken = null;
+
+    do {
+        try {
+            const items = Drive.Files.list({
+                q: query,
+                maxResults: 100,
+                pageToken,
+            });
+
+            if (!items.items || items.items.length === 0) {
+                break;
+            }
+            for (let i = 0; i < items.items.length; i++) {
+                const item = items.items[i];
+                if (item.mimeType === FOLDER_MIME) {
+                    onFolder && onFolder(item);
+                } else if (item.mimeType === SHORTCUT_MIME) {
+                    onShortcut && onShortcut(item);
+                } else {
+                    onFile && onFile(item);
+                }
+            }
+            pageToken = items.nextPageToken;
+        } catch (err) {
+            const msg = `Failed to process query '${query}]. ${err}`;
+            log(msg);
+            onError && onError(err);
+        }
+    } while (pageToken);
+
+    //log(`<< runDriveQuery(${query})`);
+}
+
+
 
 
 /**
