@@ -333,10 +333,13 @@ class DriveObjectProcessor {
             .setBackground(IDS_OUT_BG)
             //.protect().setWarningOnly(true)
         ;
+
         /*sheet.getRange(rangeInfo.logsBegin, 1, rangeInfo.logsEnd - rangeInfo.logsBegin, this.outputColumn)
             .setBackground(LOG_BG);*/   //ttt2: Review if we should set the background for logs. It was commented
         // out because it overrode listings backgrounds, but it has the advantage that if the user enters some data by
         // mistake which is not visible, the background would make it clear that it is so.
+        sheet.getRange(rangeInfo.logsBegin, 1, 1, this.outputColumn)
+            .setBackground(LOG_BG); // Set the color just for the row containing the label
 
         sheet.getRange(rangeInfo.namesBegin, 1, rangeInfo.idsEnd - rangeInfo.namesBegin, this.outputColumn)
             .setNumberFormat(PLAIN_TEXT_FMT);
