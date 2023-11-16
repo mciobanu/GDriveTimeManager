@@ -787,11 +787,14 @@ class DriveObjectProcessor {
      * @param {string} message
      */
     log(sheet, message) {
+        const REGULAR_FONT = 'normal'; // non-bold
         try {
             const row = sheet.getLastRow() + 1;
             const range = sheet.getRange(row, 1);
             range.setValue(`${formatLogDate(new Date())} ${message}`);
-            sheet.getRange(row, 1, 1, this.outputColumn).setBackground(LOG_BG);
+            sheet.getRange(row, 1, 1, this.outputColumn)
+                .setBackground(LOG_BG)
+                .setFontWeight(REGULAR_FONT);
         } catch (err) {
             console.log(`Failed to log in UI "${message}". "${err}"`);
         }
