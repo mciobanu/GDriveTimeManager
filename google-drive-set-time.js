@@ -1012,10 +1012,9 @@ class DriveFolderProcessor extends DriveObjectProcessor {
         }
 
         if (!inputInfos.length) {
-            const rootFolder = DriveApp.getRootFolder(); // ttt2 This probably needs to change for shared drives
             inputInfos.push({
                 idInfos: [{
-                    id: rootFolder.getId(),
+                    id: getRootId(),
                     path: '',
                     multiplePaths: false,
                     modifiedDate: SMALLEST_TIME, // Not right, but it will be ignored
@@ -1280,6 +1279,23 @@ function updateModifiedTime(id, newTime) {
 }
 
 
+/**
+ * @returns {string} The ID of the root folder
+ */
+function getRootId() {
+    //return DriveApp.getRootFolder().getId(); //!!! This requires permission to "See and download all your Google Drive files"
+    let id = SpreadsheetApp.getActiveSpreadsheet().getId();
+    while (true) { //  // ttt2 This probably needs to change for shared drives
+        let driveObj = Drive.Files.get(id);
+        let parents = driveObj.parents;
+        if (!parents.length) {
+            break;
+        }
+        id = parents[0].id;
+    }
+    //console.log(id);
+    return id;
+}
 
 /**
  * @param {string} id ID of a file or a folder
