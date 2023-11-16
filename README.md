@@ -49,9 +49,10 @@ After running the script, we'll have these (changes in **bold**):
 * Close both the *App Script* tab and your new spreadsheet's tab.
 * Reopen the spreadsheet. It should be changed in this way:
   * It should have a sheet called *Folders* and one called *Files*, with the background color set
-    for some cells. Some of these also have text, which shouldn't be changed.
+    for some cells. Some of these also have text, which shouldn't be changed. **Note**: Creating these sheets may 
+    take tens of seconds, so please be patient and let it finish. In the end, it should look something like this:
+    ![fresh](https://github.com/mciobanu/GDriveTimeManager/blob/main/publish/empty.png?raw=true)
   * It should have a custom menu called *Modification times*, as the last menu entry
-  * Note that creating these may take tens of seconds
 
 **Note**: A *Google Workspace Marketplace* add-on is in development, which uses the same code but is somehow easier to
 install. A link will be provided here when that becomes available.
@@ -93,7 +94,8 @@ a snapshot of your data at some point in time. This can also help with you chang
 bugs in the script.
 
 ### Menu entries
-
+                  
+![Menu entries](https://github.com/mciobanu/GDriveTimeManager/blob/main/publish//menu-manual.png?raw=true)
 * *Validate folder data*: Takes names and IDs in *Column A* and makes sure they are valid (they may not exist or a
   name may refer to multiple folders). The results are put in *Column B*. The main reason to use IDs is that you might
   have multiple folders with the same name and don't want to process them all. The IDs can be copied from *Column B*,
