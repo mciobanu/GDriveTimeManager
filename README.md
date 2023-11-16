@@ -28,6 +28,9 @@ After running the script, we'll have these (changes in **bold**):
 * `/dir1/dir2/file1`, changed at 09:00
 * `/dir1/file2`, changed at 10:00
 * `/dir1/dir3/`, changed at **1970-01-01 12:00 UTC**
+            
+Here is how this example looks like when setting folder times:
+![set dir1 folder times](https://github.com/mciobanu/GDriveTimeManager/blob/main/publish/set-time-example.png?raw=true)
 
 ## Limitations
 * The script wasn't tested with shared drives, and it's unclear what to expect in such a scenario.
@@ -120,3 +123,5 @@ bugs in the script.
 ## Future work
 * Perhaps add some options, like whether to ignore the shortcuts or not. These could be put in a dedicated sheet.
 * Maybe add a "dry-run" mode.
+
+[//]: # (ttt0 replace all references to "script" with "add-on", here and in HTML)
