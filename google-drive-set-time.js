@@ -96,6 +96,11 @@ const SHORTCUT_MIME = 'application/vnd.google-apps.shortcut';
 const SMALLEST_TIME = '1970-01-01T12:00:00.000Z'; //ttt3 Review if something else would be better. (Hour
 // is set at noon, so most timezones will see it as January 1st)
 
+// noinspection JSUnusedGlobalSymbols
+function onInstall(e) {
+    // https://developers.google.com/apps-script/guides/triggers
+    onOpen(e);
+}
 
 // noinspection JSUnusedGlobalSymbols
 /**
