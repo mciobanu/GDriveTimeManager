@@ -1,6 +1,6 @@
-# Google Drive Time Manager
+# Google Drive™ Time Manager
 
-The main purpose of this is to set the changed time for Google Drive folders such that their "modified" time as
+The main purpose of this is to set the changed time for Google Drive™ folders such that their "modified" time as
 shown on the site reflects the latest time a file within that folder was changed, looking recursively at all the files.
 If a folder is empty, its time will be set to January 1st 1970, 12:00 UTC.
 
@@ -123,5 +123,10 @@ bugs in the script.
 ## Future work
 * Perhaps add some options, like whether to ignore the shortcuts or not. These could be put in a dedicated sheet.
 * Maybe add a "dry-run" mode.
+
+## Trademark notices
+Registered trademarks and service marks are the property of their respective owners.
+
+Google Drive™ is a trademark of Google LLC
 
 [//]: # (ttt0 replace all references to "script" with "add-on", here and in HTML)
