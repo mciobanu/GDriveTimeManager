@@ -110,7 +110,8 @@ function onInstall(e) {
 function onOpen() {
     // https://developers.google.com/apps-script/guides/menus
     const ui = SpreadsheetApp.getUi();
-    ui.createMenu('Modification times')
+    ui.createMenu('Modification times') // This creates a top-level menu when run as a script and one under "Extensions" when run as an add-on
+    //ui.createAddonMenu() // This always creates a menu under "Extensions"
         .addItem(`Validate folder data`, 'menuValidateFolders')
         .addItem(`Set time for specified folders`, 'menuSetTimesFolders')
         .addItem(`List content of specified  folders`, 'menuListFolders')
@@ -128,6 +129,9 @@ function onOpen() {
  * Called when opening the document, to see if the sheets exist and have the right content and tell the user if not.
  */
 function setupSheets() {
+    //!!! An idea is to create only what's needed (perhaps create the "Files" sheet only if the users wants something
+    // from the Files menu). And the same for Folders - perhaps somebody only cares about files. This would improve
+    // startup speed, but not a lot, and it's confusing: At startup, a delay makes some sense; after that - not really.
     const folderSheet = driveFolderProcessor.getSheet();
     const fileSheetExists = driveFileProcessor.sheetExists();
     if (!fileSheetExists) {
@@ -244,6 +248,8 @@ class DriveObjectProcessor {
     getSheet() {
         //return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
         let sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(this.sheetName);
+        //ttt0: Review this: https://developers.google.com/apps-script/guides/bound - seems to suggest that add-on
+        // scripts aren't bound, and therefore getActiveSpreadsheet shouldn't work
         if (sheet && sheet.getLastRow() === 1) {
             // At the initial run, the script might be stopped for Google to ask for permissions and leave
             // the sheet in an inconsistent state. This is an attempt to deal with this, but it can probably
@@ -1308,7 +1314,7 @@ function getRootId() {
  * @returns {IdInfo}
  */
 function getIdInfo(id) {
-    const driveObj = Drive.Files.get(id)
+    const driveObj = Drive.Files.get(id);
     let parents = driveObj.parents;
     let parentCnt = parents.length;
     if (parentCnt === 0) {
