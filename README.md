@@ -10,6 +10,9 @@ itself, while files or folders in it have no impact on the folder's "modified" t
 
 The modified times can also be set for files.
 
+The user interface is in a Google Sheets™ spreadsheet. There you get several menus, and you can specify folders or
+files, and see the processing logs and results.
+
 Another purpose is to serve as an example of using *Google Apps Script™* to implement custom functionality in a
 spreadsheet.
 
@@ -38,7 +41,17 @@ Here is how this example looks like when setting folder times:
 * Shortcuts are currently skipped, as their change time seems best ignored.
 * For folders that have other owners, we don't try to set the date. (It doesn't seem to work, anyway.)
 
+## Installation notes
+There are 3 ways to install this script:
+* Manually, as a script for *Google App Script™*
+* Manually, as an add-on from *Google App Script™*
+* Directly from *Google Workspace Marketplace™* - pending approval, details to be added here when available
+
+What is described below is the manual script installation. You can use this as a starting point to deploy as an add-on, 
+by implementing the steps described [here](https://developers.google.com/apps-script/add-ons/how-tos/testing-editor-addons). 
+
 ## Installation
+
 * Go to [Google Drive](https://drive.google.com/drive/) and create a new spreadsheet. Let's say you call it *Drive
   Time Manager* and you put it in the root of your *Drive*, but you can give it any name and put it in some subfolder,
   just make sure you remember where you put it and how you called it.
@@ -57,10 +70,6 @@ Here is how this example looks like when setting folder times:
     take tens of seconds, so please be patient and let it finish. In the end, it should look something like this:
     ![fresh](https://github.com/mciobanu/GDriveTimeManager/blob/main/publish/empty.png?raw=true)
   * It should have a custom menu called *Modification times*, as the last menu entry
-
-**Note**: A *Google Workspace Marketplace™* add-on is in development, which uses the same code but is somehow easier to
-install. A link will be provided here when that becomes available.
-<!--- ttt0 Update what is created automatically if deferring what's not needed --->
 
 ## Usage
 You can run the script for the whole drive or just for some folders or files. In *Column A* of the respective sheet,
@@ -128,6 +137,4 @@ bugs in the script.
 ## Trademark notices
 Registered trademarks and service marks are the property of their respective owners.
 
-Google Drive™, Google Workspace Marketplace™, and Google Apps Script™ are trademarks of Google LLC.
-
-[//]: # (ttt0 replace all references to "script" with "add-on", here and in HTML)
+Google Drive™, Google Sheets™, Google Workspace Marketplace™, and Google Apps Script™ are trademarks of Google LLC.
