@@ -83,6 +83,7 @@ function setTimesFilesDebug() {
 
 const PLAIN_TEXT_FMT = '@STRING@';
 const LIST_DATETIME_FMT = 'yyyy-MM-dd hh:mm';
+const SEPARATOR_NUM_FMT = '#,#';
 
 const DEFAULT_SOURCE_HEIGHT = 5;
 
@@ -934,7 +935,7 @@ class DriveFolderProcessor extends DriveObjectProcessor {
 
         if (fileInfos.length) {
             const rows = [];
-            const rowFormats = [PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, LIST_DATETIME_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT];
+            const rowFormats = [PLAIN_TEXT_FMT, PLAIN_TEXT_FMT, LIST_DATETIME_FMT, SEPARATOR_NUM_FMT, PLAIN_TEXT_FMT, PLAIN_TEXT_FMT];
             //ttt2: See about date formatting. With auto-conversion, it's supposed to convert to a sensible
             // string, based on the spreadsheet and the browser settings, but it shows the date and no time
             const rowFormatsArr = [];
