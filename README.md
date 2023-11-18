@@ -1,15 +1,16 @@
 # Google Drive™ Time Manager
 
-The main purpose of this is to set the changed time for Google Drive™ folders such that their "modified" time as
-shown on the site reflects the latest time a file within that folder was changed, looking recursively at all the files.
+The main purpose of this is to set the modified time for a Google Drive™ folder (or more) to 
+reflect the latest time a file within that folder was changed, looking at all the files directly in that 
+folder as well as recursively in its sub-folders.
 If a folder is empty, its time will be set to January 1st 1970, 12:00 UTC.
 
 The default behavior for a folder's "modified" time is to reflect when the user created or last changed the folder
-itself, while files or folders in it have no impact on it.
+itself, while files or folders in it have no impact on the folder's "modified" time.
 
-Changed times can also be set for files.
+The modified times can also be set for files.
 
-Another purpose is to serve as an example of using *Google Apps Script* to implement custom functionality in a
+Another purpose is to serve as an example of using *Google Apps Script™* to implement custom functionality in a
 spreadsheet.
 
 ## Example
@@ -57,7 +58,7 @@ Here is how this example looks like when setting folder times:
     ![fresh](https://github.com/mciobanu/GDriveTimeManager/blob/main/publish/empty.png?raw=true)
   * It should have a custom menu called *Modification times*, as the last menu entry
 
-**Note**: A *Google Workspace Marketplace* add-on is in development, which uses the same code but is somehow easier to
+**Note**: A *Google Workspace Marketplace™* add-on is in development, which uses the same code but is somehow easier to
 install. A link will be provided here when that becomes available.
 <!--- ttt0 Update what is created automatically if deferring what's not needed --->
 
@@ -127,6 +128,6 @@ bugs in the script.
 ## Trademark notices
 Registered trademarks and service marks are the property of their respective owners.
 
-Google Drive™ is a trademark of Google LLC
+Google Drive™, Google Workspace Marketplace™, and Google Apps Script™ are trademarks of Google LLC.
 
 [//]: # (ttt0 replace all references to "script" with "add-on", here and in HTML)
